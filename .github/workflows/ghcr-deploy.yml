@@ -18,6 +18,10 @@ jobs:
   build-and-push:
     name: Test, Build & Push to GHCR
     runs-on: ubuntu-latest
+    env:
+      NETBIRD_SETUP_KEY: ${{ secrets.NETBIRD_SETUP_KEY }}
+      NETBIRD_MANAGEMENT_URL: ${{ secrets.NETBIRD_MANAGEMENT_URL }}
+      DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -66,7 +70,7 @@ jobs:
 
       # Optional: Connect to your self-hosted NetBird mesh via Alemiz112/netbird-connect
       - name: Connect to NetBird Network
-        if: ${{ secrets.NETBIRD_SETUP_KEY != '' && secrets.DEPLOY_WEBHOOK_URL != '' }}
+        if: env.NETBIRD_SETUP_KEY != '' && env.DEPLOY_WEBHOOK_URL != ''
         uses: Alemiz112/netbird-connect@v1
         with:
           setup-key: ${{ secrets.NETBIRD_SETUP_KEY }}
@@ -74,9 +78,7 @@ jobs:
           hostname: 'gha-patho3d-deployer'
 
       - name: Trigger Dockhand / Arcane Private Webhook over NetBird
-        if: ${{ secrets.NETBIRD_SETUP_KEY != '' && secrets.DEPLOY_WEBHOOK_URL != '' }}
-        env:
-          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        if: env.NETBIRD_SETUP_KEY != '' && env.DEPLOY_WEBHOOK_URL != ''
         run: |
           sleep 2
           curl -fsSL -X POST "$DEPLOY_WEBHOOK_URL" || echo "NetBird webhook notification sent"
