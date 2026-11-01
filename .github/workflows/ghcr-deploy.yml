@@ -56,10 +56,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push production image to GHCR
+      - name: Build and push multi-arch production image to GHCR (amd64 + arm64)
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image_meta.outputs.image_name }}:latest

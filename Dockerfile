@@ -1,7 +1,8 @@
 # ============================================================================
-# Stage 1: Build Frontend SPA & PWA Assets
+# Stage 1: Build Frontend SPA, PWA Assets & Pure-JS Production node_modules
+# Runs natively on $BUILDPLATFORM (zero QEMU emulation overhead)
 # ============================================================================
-FROM node:22-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -18,8 +19,11 @@ COPY . .
 RUN node -e "import('./server.ts').catch(() => {})" 2>/dev/null || true
 RUN npm run build
 
+# Prune devDependencies natively so Stage 2 needs zero QEMU RUN steps
+RUN npm prune --omit=dev --legacy-peer-deps
+
 # ============================================================================
-# Stage 2: Production Express + Static SPA Runtime
+# Stage 2: Multi-Arch Production Runtime (linux/amd64 & linux/arm64/v8)
 # ============================================================================
 FROM node:22-alpine AS runner
 
@@ -28,20 +32,16 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Copy package manifests and install only production runtime dependencies
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev --legacy-peer-deps && npm cache clean --force
+# Copy pruned pure-JS production node_modules and compiled assets with node user ownership
+COPY --chown=node:node --from=builder /app/package.json ./package.json
+COPY --chown=node:node --from=builder /app/node_modules ./node_modules
+COPY --chown=node:node --from=builder /app/dist ./dist
+COPY --chown=node:node --from=builder /app/public ./public
+COPY --chown=node:node --from=builder /app/server.ts ./server.ts
+COPY --chown=node:node --from=builder /app/src/types ./src/types
+COPY --chown=node:node --from=builder /app/src/data ./src/data
+COPY --chown=node:node --from=builder /app/src/utils ./src/utils
 
-# Copy compiled frontend assets and required server-side runtime files
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/server.ts ./server.ts
-COPY --from=builder /app/src/types ./src/types
-COPY --from=builder /app/src/data ./src/data
-COPY --from=builder /app/src/utils ./src/utils
-
-# Run as non-root node user for container security
-RUN chown -R node:node /app
 USER node
 
 EXPOSE 3000
