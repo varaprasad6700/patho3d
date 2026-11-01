@@ -22,6 +22,7 @@ jobs:
       NETBIRD_SETUP_KEY: ${{ secrets.NETBIRD_SETUP_KEY }}
       NETBIRD_MANAGEMENT_URL: ${{ secrets.NETBIRD_MANAGEMENT_URL }}
       DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+      DEPLOY_WEBHOOK_SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -33,7 +34,7 @@ jobs:
 
       - name: Install dependencies & run unit tests
         run: |
-          npm install
+          npm install --legacy-peer-deps
           npx --yes tsx --test src/utils/pathologyEngine.test.ts
           npm run lint
 
@@ -80,4 +81,17 @@ jobs:
         if: env.NETBIRD_SETUP_KEY != '' && env.DEPLOY_WEBHOOK_URL != ''
         run: |
           sleep 2
-          curl -fsSL -X POST "$DEPLOY_WEBHOOK_URL" || echo "NetBird webhook notification sent"
+          PAYLOAD='{"ref":"refs/heads/main","repository":{"full_name":"${{ github.repository }}"}}'
+          if [ -n "$DEPLOY_WEBHOOK_SECRET" ]; then
+            SIG="sha256=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$DEPLOY_WEBHOOK_SECRET" | awk '{print $NF}')"
+            curl -fsSL -X POST "$DEPLOY_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Event: push" \
+              -H "X-Hub-Signature-256: $SIG" \
+              -d "$PAYLOAD"
+          else
+            curl -fsSL -X POST "$DEPLOY_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Event: push" \
+              -d "$PAYLOAD"
+          fi

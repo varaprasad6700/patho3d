@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install all dependencies (including Vite & TypeScript build tools)
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy application source
 COPY . .
@@ -30,7 +30,7 @@ ENV PORT=3000
 
 # Copy package manifests and install only production runtime dependencies
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev && npm cache clean --force
+RUN npm install --omit=dev --legacy-peer-deps && npm cache clean --force
 
 # Copy compiled frontend assets and required server-side runtime files
 COPY --from=builder /app/dist ./dist
