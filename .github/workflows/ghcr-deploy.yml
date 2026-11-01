@@ -19,6 +19,7 @@ jobs:
     name: Test, Build & Push to GHCR
     runs-on: ubuntu-latest
     env:
+      NB_LAZY_CONN: 'false'
       NETBIRD_SETUP_KEY: ${{ secrets.NETBIRD_SETUP_KEY }}
       NETBIRD_MANAGEMENT_URL: ${{ secrets.NETBIRD_MANAGEMENT_URL }}
       NETBIRD_SERVER_IP: ${{ secrets.NETBIRD_SERVER_IP }}
@@ -82,11 +83,24 @@ jobs:
         if: env.NETBIRD_SETUP_KEY != '' && env.DEPLOY_WEBHOOK_URL != ''
         run: |
           WEBHOOK_HOST=$(echo "$DEPLOY_WEBHOOK_URL" | sed -E 's|^https?://([^/:]+).*|\1|')
+          WEBHOOK_PORT=$(echo "$DEPLOY_WEBHOOK_URL" | sed -nE 's|^https?://[^/:]+:([0-9]+).*|\1|p')
+          if [ -z "$WEBHOOK_PORT" ]; then
+            if echo "$DEPLOY_WEBHOOK_URL" | grep -q "^https://"; then
+              WEBHOOK_PORT=443
+            else
+              WEBHOOK_PORT=80
+            fi
+          fi
+
+          TARGET_IP="${NETBIRD_SERVER_IP:-$WEBHOOK_HOST}"
+          echo "Waking up NetBird WireGuard tunnel to target peer ($TARGET_IP)..."
+          ping -c 4 -W 2 "$TARGET_IP" || true
+          sleep 3
 
           RESOLVE_ARGS=""
-          if [ -n "$NETBIRD_SERVER_IP" ]; then
-            echo "Routing $WEBHOOK_HOST over NetBird via NETBIRD_SERVER_IP ($NETBIRD_SERVER_IP)"
-            RESOLVE_ARGS="--resolve ${WEBHOOK_HOST}:443:${NETBIRD_SERVER_IP} --resolve ${WEBHOOK_HOST}:80:${NETBIRD_SERVER_IP}"
+          if [ -n "$NETBIRD_SERVER_IP" ] && [ "$WEBHOOK_HOST" != "$NETBIRD_SERVER_IP" ]; then
+            echo "Routing $WEBHOOK_HOST:$WEBHOOK_PORT over NetBird via NETBIRD_SERVER_IP ($NETBIRD_SERVER_IP)"
+            RESOLVE_ARGS="--resolve ${WEBHOOK_HOST}:${WEBHOOK_PORT}:${NETBIRD_SERVER_IP} --resolve ${WEBHOOK_HOST}:443:${NETBIRD_SERVER_IP} --resolve ${WEBHOOK_HOST}:80:${NETBIRD_SERVER_IP}"
           fi
 
           PAYLOAD='{"ref":"refs/heads/main","repository":{"full_name":"${{ github.repository }}"}}'
@@ -96,7 +110,14 @@ jobs:
             SIG_HEADER="-H X-Hub-Signature-256:$SIG"
           fi
 
-          curl -v -fsSL --connect-timeout 15 --max-time 30 $RESOLVE_ARGS -X POST "$DEPLOY_WEBHOOK_URL" \
+          curl -v -fsSL \
+            --retry 5 \
+            --retry-delay 3 \
+            --retry-all-errors \
+            --connect-timeout 10 \
+            --max-time 30 \
+            $RESOLVE_ARGS \
+            -X POST "$DEPLOY_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-GitHub-Event: push" \
             $SIG_HEADER \
