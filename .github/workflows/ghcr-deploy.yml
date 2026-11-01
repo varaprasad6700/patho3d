@@ -1,0 +1,82 @@
+name: Build & Publish Docker Image to GHCR
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    name: Test, Build & Push to GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies & run unit tests
+        run: |
+          npm install
+          npx --yes tsx --test src/utils/pathologyEngine.test.ts
+          npm run lint
+
+      - name: Set lowercase image name
+        id: image_meta
+        run: |
+          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "image_name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push production image to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.image_meta.outputs.image_name }}:latest
+            ${{ env.REGISTRY }}/${{ steps.image_meta.outputs.image_name }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.description=Patho3D Clinical Pathophysiology & Reaction Atlas
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Optional: Connect to your self-hosted NetBird mesh via Alemiz112/netbird-connect
+      - name: Connect to NetBird Network
+        if: ${{ secrets.NETBIRD_SETUP_KEY != '' && secrets.DEPLOY_WEBHOOK_URL != '' }}
+        uses: Alemiz112/netbird-connect@v1
+        with:
+          setup-key: ${{ secrets.NETBIRD_SETUP_KEY }}
+          management-url: ${{ secrets.NETBIRD_MANAGEMENT_URL }}
+          hostname: 'gha-patho3d-deployer'
+
+      - name: Trigger Dockhand / Arcane Private Webhook over NetBird
+        if: ${{ secrets.NETBIRD_SETUP_KEY != '' && secrets.DEPLOY_WEBHOOK_URL != '' }}
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          sleep 2
+          curl -fsSL -X POST "$DEPLOY_WEBHOOK_URL" || echo "NetBird webhook notification sent"

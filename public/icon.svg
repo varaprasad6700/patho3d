@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="112" fill="#070B12"/>
+  <rect x="24" y="24" width="464" height="464" rx="92" stroke="#1E293B" stroke-width="4"/>
+  <!-- 3D Anatomical Cross-Axis Ring -->
+  <ellipse cx="256" cy="256" rx="164" ry="72" transform="rotate(-30 256 256)" stroke="#0D9488" stroke-width="12" stroke-dasharray="18 10"/>
+  <ellipse cx="256" cy="256" rx="164" ry="72" transform="rotate(30 256 256)" stroke="#3B82F6" stroke-width="10" stroke-opacity="0.65"/>
+  <!-- Stylized Heart / Organ Vascular Core -->
+  <path d="M256 136C212 136 176 172 176 218C176 286 256 364 256 382C256 364 336 286 336 218C336 172 300 136 256 136Z" fill="#EF4444" fill-opacity="0.2" stroke="#EF4444" stroke-width="14" stroke-linejoin="round"/>
+  <!-- Vascular Branching Tree -->
+  <path d="M256 136V96M226 116L256 136L286 112M256 220L218 258M256 244L296 280" stroke="#F59E0B" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Hotspot Node -->
+  <circle cx="256" cy="224" r="18" fill="#0D9488" stroke="#FFFFFF" stroke-width="6"/>
+</svg>

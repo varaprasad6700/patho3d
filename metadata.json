@@ -1,0 +1,6 @@
+{
+  "name": "Patho3D — Clinical Pathophysiology & Reaction Atlas",
+  "description": "Interactive 3D medical pathophysiology and host physiological reaction visualizer for physicians and medical students across all organ systems.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

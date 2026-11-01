@@ -1,0 +1,28 @@
+services:
+  patho3d:
+    # Replace <your-github-username>/<repo-name> with your lowercase GitHub repo path
+    image: ghcr.io/${GITHUB_REPOSITORY:-your-github-username/patho3d}:latest
+    container_name: patho3d-atlas
+    restart: unless-stopped
+    pull_policy: always
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Set GEMINI_API_KEY in Arcane's Stack Environment Variables UI
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    ports:
+      # Exposes port 3000 to your host or reverse proxy.
+      # If your reverse proxy shares an external Docker network, you can remove `ports`
+      # and attach that network below instead.
+      - "${HOST_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      # Dockhand / Watchtower / Arcane auto-update labels
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "dockhand.auto-update=true"
+      - "org.opencontainers.image.title=Patho3D Clinical Atlas"

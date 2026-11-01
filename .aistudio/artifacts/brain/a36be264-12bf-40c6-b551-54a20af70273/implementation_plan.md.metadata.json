@@ -1,0 +1,6 @@
+{
+  "summary":  "Streamlined self-hosted deployment plan using a public GitHub repository, GitHub Actions CI/CD to public GHCR, and zero-auth Arcane/Dockhand deployment behind your reverse proxy.",
+  "updatedAt":  "2026-11-01T17:18:27.820535401Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
