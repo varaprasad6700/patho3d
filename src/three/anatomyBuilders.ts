@@ -1,10 +1,13 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Archetype3D, StageSceneParams } from '../types/pathology';
 
 export interface BuiltAnatomyRig {
   rootGroup: THREE.Group;
   macroGroup: THREE.Group;
   microGroup: THREE.Group;
+  proceduralBaseGroup: THREE.Group;
+  nihGlbGroup: THREE.Group;
   parenchymaMaterials: THREE.MeshPhysicalMaterial[];
   arterialMaterials: THREE.MeshPhysicalMaterial[];
   venousMaterials: THREE.MeshPhysicalMaterial[];
@@ -19,6 +22,8 @@ export interface BuiltAnatomyRig {
   dispose: () => void;
 }
 
+const _glbSceneCache = new Map<Archetype3D, THREE.Group>();
+
 const _dummy = new THREE.Object3D();
 const _pos = new THREE.Vector3();
 const _tangent = new THREE.Vector3();
@@ -31,7 +36,7 @@ const _fibroticColor = new THREE.Color(0xb48a64);
 const _inflamedEmissive = new THREE.Color(0xdc2626);
 
 /**
- * Generates a zero-404 procedural organic tissue cellular bump/roughness texture in memory.
+ * Generates a zero-404 procedural Netter-style gouache & collagen striation bump/roughness texture in memory.
  */
 export function createOrganicTissueTexture(maxAnisotropy = 4): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -48,21 +53,21 @@ export function createOrganicTissueTexture(maxAnisotropy = 4): THREE.CanvasTextu
       const y = (i * 137) % 256;
       const r = 6 + (i % 14);
       const grad = ctx.createRadialGradient(x, y, 1, x, y, r);
-      grad.addColorStop(0, 'rgba(215, 215, 215, 0.35)');
-      grad.addColorStop(0.6, 'rgba(130, 130, 130, 0.2)');
-      grad.addColorStop(1, 'rgba(65, 65, 65, 0)');
+      grad.addColorStop(0, 'rgba(220, 220, 220, 0.38)');
+      grad.addColorStop(0.6, 'rgba(130, 130, 130, 0.22)');
+      grad.addColorStop(1, 'rgba(60, 60, 60, 0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Fine collagenous striation lines
-    ctx.strokeStyle = 'rgba(240, 240, 240, 0.14)';
-    ctx.lineWidth = 1.2;
-    for (let j = 0; j < 48; j++) {
+    // Fine Netter-style brush & myocardial/collagenous fiber striations
+    ctx.strokeStyle = 'rgba(245, 245, 245, 0.18)';
+    ctx.lineWidth = 1.25;
+    for (let j = 0; j < 64; j++) {
       ctx.beginPath();
-      const sy = (j * 29) % 256;
+      const sy = (j * 23) % 256;
       ctx.moveTo(0, sy);
       ctx.bezierCurveTo(85, (sy + 18) % 256, 170, (sy - 18 + 256) % 256, 256, sy);
       ctx.stroke();
@@ -80,11 +85,16 @@ export function createOrganicTissueTexture(maxAnisotropy = 4): THREE.CanvasTextu
 export function buildAnatomyRig(
   archetype: Archetype3D,
   maxAnisotropy: number,
-  isSoftwareGl: boolean
+  isSoftwareGl: boolean,
+  onNihGlbLoaded?: (subMeshCount: number) => void
 ): BuiltAnatomyRig {
   const rootGroup = new THREE.Group();
   const macroGroup = new THREE.Group();
   const microGroup = new THREE.Group();
+  const proceduralBaseGroup = new THREE.Group();
+  const nihGlbGroup = new THREE.Group();
+  macroGroup.add(proceduralBaseGroup);
+  macroGroup.add(nihGlbGroup);
   rootGroup.add(macroGroup);
   rootGroup.add(microGroup);
   microGroup.visible = false;
@@ -92,6 +102,7 @@ export function buildAnatomyRig(
   const geometries: THREE.BufferGeometry[] = [];
   const materials: THREE.Material[] = [];
   const textures: THREE.Texture[] = [];
+  let isDisposed = false;
 
   const tissueBumpMap = createOrganicTissueTexture(maxAnisotropy);
   textures.push(tissueBumpMap);
@@ -115,17 +126,20 @@ export function buildAnatomyRig(
   const cutawayShellMeshes: THREE.Mesh[] = [];
   const rbcPaths: THREE.CatmullRomCurve3[] = [];
 
-  // Shared PBR material factories
+  // Shared PBR + Netter Gouache material factories
   const makeParenchymaMat = (hexColor: number, roughness = 0.42, clearcoat = 0.65) => {
     const mat = trackMat(
       new THREE.MeshPhysicalMaterial({
         color: hexColor,
         roughness,
-        metalness: 0.06,
+        metalness: 0.05,
         clearcoat: isSoftwareGl ? 0.25 : clearcoat,
         clearcoatRoughness: 0.22,
+        sheen: 0.35,
+        sheenRoughness: 0.5,
+        sheenColor: new THREE.Color(0xfda4af),
         bumpMap: tissueBumpMap,
-        bumpScale: 0.035,
+        bumpScale: 0.038,
         side: THREE.DoubleSide,
       })
     );
@@ -214,7 +228,7 @@ export function buildAnatomyRig(
     lvMesh.position.set(0.18, -0.1, 0);
     lvMesh.rotation.z = -0.22;
     lvMesh.castShadow = !isSoftwareGl;
-    macroGroup.add(lvMesh);
+    proceduralBaseGroup.add(lvMesh);
     hypertrophyMeshes.push(lvMesh);
 
     // Cutaway outer anterior wall shell
@@ -222,7 +236,7 @@ export function buildAnatomyRig(
     const shellMesh = new THREE.Mesh(shellGeo, myocardiumMat.clone());
     shellMesh.position.set(0.18, -0.1, 0.06);
     shellMesh.scale.set(0.95, 1.15, 0.92);
-    macroGroup.add(shellMesh);
+    proceduralBaseGroup.add(shellMesh);
     cutawayShellMeshes.push(shellMesh);
 
     // 2. Right Ventricle Crescent Chamber
@@ -231,17 +245,17 @@ export function buildAnatomyRig(
     rvMesh.scale.set(0.85, 1.12, 0.78);
     rvMesh.position.set(-0.42, -0.18, 0.18);
     rvMesh.rotation.z = 0.15;
-    macroGroup.add(rvMesh);
+    proceduralBaseGroup.add(rvMesh);
 
     // 3. Left & Right Atria
     const laGeo = trackGeo(new THREE.SphereGeometry(0.48, 24, 20));
     const laMesh = new THREE.Mesh(laGeo, atriumMat);
     laMesh.position.set(0.48, 0.78, -0.18);
-    macroGroup.add(laMesh);
+    proceduralBaseGroup.add(laMesh);
 
     const raMesh = new THREE.Mesh(laGeo, atriumMat);
     raMesh.position.set(-0.55, 0.72, -0.05);
-    macroGroup.add(raMesh);
+    proceduralBaseGroup.add(raMesh);
 
     // 4. Ascending Aorta & Arch (TubeGeometry)
     const aortaCurve = new THREE.CatmullRomCurve3([
@@ -318,7 +332,7 @@ export function buildAnatomyRig(
     const rLobe = new THREE.Mesh(rLobeGeo, liverMat);
     rLobe.scale.set(1.15, 0.88, 0.82);
     rLobe.position.set(0.42, 0.32, 0);
-    macroGroup.add(rLobe);
+    proceduralBaseGroup.add(rLobe);
     hypertrophyMeshes.push(rLobe);
 
     // 2. Left Hepatic Lobe Wedge
@@ -327,7 +341,7 @@ export function buildAnatomyRig(
     lLobe.rotation.z = -Math.PI * 0.42;
     lLobe.scale.set(1.0, 1.0, 0.68);
     lLobe.position.set(-0.62, 0.45, 0.08);
-    macroGroup.add(lLobe);
+    proceduralBaseGroup.add(lLobe);
     cutawayShellMeshes.push(lLobe);
 
     // 3. Regenerative Cirrhotic Nodules Cluster (10 composite nodules on liver surface)
@@ -424,7 +438,7 @@ export function buildAnatomyRig(
     const beanGeo = trackGeo(new THREE.TubeGeometry(kidneyBeanCurve, 36, 0.68, 24, false));
     const beanMesh = new THREE.Mesh(beanGeo, cortexMat);
     beanMesh.scale.set(1.0, 1.0, 0.75);
-    macroGroup.add(beanMesh);
+    proceduralBaseGroup.add(beanMesh);
     hypertrophyMeshes.push(beanMesh);
     cutawayShellMeshes.push(beanMesh);
 
@@ -435,20 +449,20 @@ export function buildAnatomyRig(
       const pyr = new THREE.Mesh(pyramidGeo, medullaMat);
       pyr.position.set(0.35 + Math.cos(ang) * 0.25, Math.sin(ang) * 0.72, 0.28);
       pyr.rotation.z = ang + Math.PI / 2;
-      macroGroup.add(pyr);
+      proceduralBaseGroup.add(pyr);
     });
 
-    // 3. Magnified Glomerular Capillary Tuft & Bowman Capsule Inset
-    const bowmanGeo = trackGeo(new THREE.SphereGeometry(0.45, 24, 20, 0, Math.PI * 1.4));
+    // 3. Magnified Glomerular Capillary Tuft & Bowman Capsule Inset (compact cortical window)
+    const bowmanGeo = trackGeo(new THREE.SphereGeometry(0.22, 24, 20, 0, Math.PI * 1.35));
     const bowmanMesh = new THREE.Mesh(bowmanGeo, tubuleMat);
-    bowmanMesh.position.set(0.28, 0.62, 0.68);
+    bowmanMesh.position.set(0.32, 0.58, 0.52);
     bowmanMesh.rotation.y = -0.5;
     macroGroup.add(bowmanMesh);
 
-    const tuftCurve = new THREE.TorusKnotGeometry(0.2, 0.055, 48, 12, 2, 3);
+    const tuftCurve = new THREE.TorusKnotGeometry(0.11, 0.032, 48, 12, 2, 3);
     geometries.push(tuftCurve);
     const tuftMesh = new THREE.Mesh(tuftCurve, artMat);
-    tuftMesh.position.set(0.28, 0.62, 0.72);
+    tuftMesh.position.set(0.32, 0.58, 0.55);
     macroGroup.add(tuftMesh);
 
     // 4. Kimmelstiel-Wilson Nodular Glomerulosclerosis Spheres
@@ -525,7 +539,7 @@ export function buildAnatomyRig(
       muscularisMat
     );
     outerSerosaMesh.scale.set(1.0, 1.0, 0.72);
-    macroGroup.add(outerSerosaMesh);
+    proceduralBaseGroup.add(outerSerosaMesh);
     hypertrophyMeshes.push(outerSerosaMesh);
 
     // 2. Anterior Cutaway Mucosal Rugae Shell
@@ -534,7 +548,7 @@ export function buildAnatomyRig(
       mucosaMat
     );
     rugaeMesh.position.set(0, 0, 0.12);
-    macroGroup.add(rugaeMesh);
+    proceduralBaseGroup.add(rugaeMesh);
     cutawayShellMeshes.push(rugaeMesh);
 
     // 3. Layered Histological Wall Slab at Antrum/Duodenum (Mucosa + Submucosa + Muscularis)
@@ -614,7 +628,7 @@ export function buildAnatomyRig(
       const m = new THREE.Mesh(sacGeo, alveolusMat);
       m.position.set(sx, sy, sz);
       m.scale.setScalar(sr);
-      macroGroup.add(m);
+      proceduralBaseGroup.add(m);
       hypertrophyMeshes.push(m);
       if (idx === 6) cutawayShellMeshes.push(m);
     });
@@ -674,14 +688,14 @@ export function buildAnatomyRig(
     const rightHem = new THREE.Mesh(hemGeo, cortexMat);
     rightHem.scale.set(0.78, 0.95, 1.22);
     rightHem.position.set(0.52, 0.18, 0);
-    macroGroup.add(rightHem);
+    proceduralBaseGroup.add(rightHem);
     hypertrophyMeshes.push(rightHem);
     cutawayShellMeshes.push(rightHem);
 
     const leftHem = new THREE.Mesh(hemGeo, leftHemMat);
     leftHem.scale.set(0.78, 0.95, 1.22);
     leftHem.position.set(-0.52, 0.18, 0);
-    macroGroup.add(leftHem);
+    proceduralBaseGroup.add(leftHem);
 
     // 2. Brainstem & Cerebellum
     const stemMesh = new THREE.Mesh(
@@ -689,7 +703,7 @@ export function buildAnatomyRig(
       leftHemMat
     );
     stemMesh.position.set(0, -0.75, -0.15);
-    macroGroup.add(stemMesh);
+    proceduralBaseGroup.add(stemMesh);
 
     // 3. Circle of Willis & Middle Cerebral Artery (MCA M1-M3) Tree
     const mcaCurve = new THREE.CatmullRomCurve3([
@@ -742,7 +756,7 @@ export function buildAnatomyRig(
       trackGeo(new THREE.TubeGeometry(microVesselCurve, 36, 0.68, 24, false)),
       vesselWallMat
     );
-    macroGroup.add(outerWall);
+    proceduralBaseGroup.add(outerWall);
     hypertrophyMeshes.push(outerWall);
     cutawayShellMeshes.push(outerWall);
 
@@ -852,18 +866,196 @@ export function buildAnatomyRig(
 
   const finalizeTrackedScales = () => {
     lesionMeshes.forEach((m) => {
-      m.userData.baseScale = m.scale.clone();
+      if (!m.userData.baseScale) m.userData.baseScale = m.scale.clone();
     });
     hypertrophyMeshes.forEach((m) => {
-      m.userData.baseScale = m.scale.clone();
+      if (!m.userData.baseScale) m.userData.baseScale = m.scale.clone();
     });
     stenosisMeshes.forEach((m) => {
-      m.userData.baseScale = m.scale.clone();
+      if (!m.userData.baseScale) m.userData.baseScale = m.scale.clone();
     });
   };
   finalizeTrackedScales();
 
+  // -------------------------------------------------------------------------
+  // OPTION 2 + OPTION 1: NIH HuBMAP Reference Organ .GLB Loader & Netter Gouache Shader
+  // -------------------------------------------------------------------------
+  const applyNetterShaderToNihScene = (rawScene: THREE.Group) => {
+    if (isDisposed) return;
+    const glbClone = rawScene.clone(true);
+
+    // Normalize bounding box to fit [-1.15, 1.15] surgical stage and center at (0, 0, 0)
+    glbClone.updateMatrixWorld(true);
+    const bbox = new THREE.Box3().setFromObject(glbClone);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    bbox.getSize(size);
+    bbox.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+    const targetSpan = archetype === 'gi_mucosa_ulcer' ? 2.35 : 2.25;
+    const normScale = targetSpan / maxDim;
+
+    const wrapper = new THREE.Group();
+    glbClone.position.set(-center.x * normScale, -center.y * normScale, -center.z * normScale);
+    glbClone.scale.setScalar(normScale);
+    wrapper.add(glbClone);
+
+    // Subtle Netter anatomical ink contour line material
+    const inkContourMat = trackMat(
+      new THREE.LineBasicMaterial({
+        color: 0x260b10,
+        transparent: true,
+        opacity: 0.28,
+      })
+    );
+
+    // Translucent outer capsule / serosa material so internal valves, segments, and pyramids shine through
+    const outerCapsuleMat = trackMat(
+      new THREE.MeshPhysicalMaterial({
+        color:
+          archetype === 'liver_portal'
+            ? 0x88292f
+            : archetype === 'kidney_nephron'
+            ? 0x9f1239
+            : archetype === 'brain_vascular'
+            ? 0xfda4af
+            : 0xb91c1c,
+        roughness: 0.32,
+        metalness: 0.04,
+        clearcoat: isSoftwareGl ? 0.25 : 0.75,
+        clearcoatRoughness: 0.18,
+        transparent: true,
+        opacity: 0.36,
+        depthWrite: false,
+        bumpMap: tissueBumpMap,
+        bumpScale: 0.02,
+        side: THREE.DoubleSide,
+      })
+    );
+    outerCapsuleMat.userData.baseColorHex = outerCapsuleMat.color.getHex();
+    parenchymaMaterials.push(outerCapsuleMat);
+
+    // Warm Netter fibrous/valvular/ligamentous ochre-ivory material
+    const fibrousValveMat = makeParenchymaMat(0xe5d3b3, 0.38, 0.55);
+
+    let meshIndex = 0;
+    const allMeshes: THREE.Mesh[] = [];
+    glbClone.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        allMeshes.push(child as THREE.Mesh);
+      }
+    });
+
+    allMeshes.forEach((mesh) => {
+      meshIndex++;
+      if (!mesh.geometry.attributes.normal) {
+        mesh.geometry.computeVertexNormals();
+      }
+      const rawName = `${mesh.name || ''} ${mesh.parent?.name || ''}`.toLowerCase();
+
+      const isOuterShell =
+        allMeshes.length > 1 &&
+        (rawName.includes('vh_m_heart ') ||
+          mesh.name === 'VH_M_heart' ||
+          mesh.name === 'VH_M_liver' ||
+          mesh.name === 'VH_M_left_kidney' ||
+          rawName.includes('capsule') ||
+          rawName.includes('outer_cortex') ||
+          rawName.includes('bare_area') ||
+          rawName.includes('serosa'));
+
+      const isFibrousOrValve =
+        rawName.includes('valve') ||
+        rawName.includes('ligament') ||
+        rawName.includes('hilum') ||
+        rawName.includes('papilla') ||
+        rawName.includes('ampulla') ||
+        rawName.includes('sphincter') ||
+        rawName.includes('bronch') ||
+        rawName.includes('trachea') ||
+        rawName.includes('calyx') ||
+        rawName.includes('pelvis');
+
+      const isPapillaryOrColumn =
+        rawName.includes('papillary_muscle') ||
+        rawName.includes('renal_column') ||
+        rawName.includes('septum') ||
+        rawName.includes('caudate');
+
+      if (isOuterShell) {
+        mesh.material = outerCapsuleMat;
+        cutawayShellMeshes.push(mesh);
+      } else if (isFibrousOrValve) {
+        mesh.material = fibrousValveMat;
+      } else if (isPapillaryOrColumn) {
+        const subMat = makeParenchymaMat(0xc2410c, 0.4, 0.65);
+        mesh.material = subMat;
+        mesh.userData.baseScale = mesh.scale.clone();
+        hypertrophyMeshes.push(mesh);
+      } else {
+        // Differentiate Netter gouache tones across anatomical sub-chambers / segments
+        const palette =
+          archetype === 'liver_portal'
+            ? [0x88292f, 0x7f1d1d, 0x991b1b, 0x7c2d12]
+            : archetype === 'kidney_nephron'
+            ? [0x9f1239, 0x881337, 0xbe123c, 0x991b1b]
+            : archetype === 'gi_mucosa_ulcer'
+            ? [0xe11d48, 0xbe123c, 0xf43f5e, 0x9f1239]
+            : archetype === 'lung_alveoli'
+            ? [0xf43f5e, 0xe11d48, 0xfb7185]
+            : archetype === 'brain_vascular'
+            ? [0xfda4af, 0xfb7185, 0xf43f5e]
+            : [0xb91c1c, 0x991b1b, 0x7f1d1d, 0x881337];
+        const hex = palette[meshIndex % palette.length];
+        const subMat = makeParenchymaMat(hex, 0.4, 0.68);
+        mesh.material = subMat;
+        mesh.userData.baseScale = mesh.scale.clone();
+        hypertrophyMeshes.push(mesh);
+      }
+
+      // Add Netter-style subtle ink contour lines on internal structures with reasonable vertex count
+      const posAttr = mesh.geometry.attributes.position;
+      if (!isOuterShell && posAttr && posAttr.count < 18000) {
+        try {
+          const edgesGeo = trackGeo(new THREE.EdgesGeometry(mesh.geometry, 36));
+          const contourLines = new THREE.LineSegments(edgesGeo, inkContourMat);
+          mesh.add(contourLines);
+        } catch {
+          // Ignore edge generation on non-manifold sub-meshes
+        }
+      }
+    });
+
+    nihGlbGroup.add(wrapper);
+    // Hide the simple procedural base primitives so the real sculpted NIH organ takes center stage
+    proceduralBaseGroup.visible = false;
+    onNihGlbLoaded?.(allMeshes.length);
+  };
+
+  if (typeof window !== 'undefined') {
+    const cachedScene = _glbSceneCache.get(archetype);
+    if (cachedScene) {
+      applyNetterShaderToNihScene(cachedScene);
+    } else {
+      const loader = new GLTFLoader();
+      loader.load(
+        `/api/anatomy/glb/${archetype}`,
+        (gltf) => {
+          if (gltf?.scene) {
+            _glbSceneCache.set(archetype, gltf.scene);
+            applyNetterShaderToNihScene(gltf.scene);
+          }
+        },
+        undefined,
+        () => {
+          // Fallback: keep proceduralBaseGroup visible if offline
+        }
+      );
+    }
+  }
+
   const dispose = () => {
+    isDisposed = true;
     geometries.forEach((g) => g.dispose());
     materials.forEach((m) => m.dispose());
     textures.forEach((t) => t.dispose());
@@ -873,6 +1065,8 @@ export function buildAnatomyRig(
     rootGroup,
     macroGroup,
     microGroup,
+    proceduralBaseGroup,
+    nihGlbGroup,
     parenchymaMaterials,
     arterialMaterials,
     venousMaterials,

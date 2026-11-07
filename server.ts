@@ -132,6 +132,63 @@ async function startServer() {
     });
   });
 
+  // Official NIH Human Reference Atlas (HuBMAP CCF) 3D Reference Organ GLB Library
+  const NIH_HRA_GLB_URLS: Record<string, string> = {
+    heart_coronary:
+      'https://cdn.humanatlas.io/digital-objects/ref-organ/heart-male/v1.3/assets/3d-vh-m-heart.glb',
+    liver_portal:
+      'https://cdn.humanatlas.io/digital-objects/ref-organ/liver-male/v1.2/assets/3d-vh-m-liver.glb',
+    kidney_nephron:
+      'https://cdn.humanatlas.io/digital-objects/ref-organ/kidney-male-left/v1.3/assets/3d-vh-m-kidney-l.glb',
+    gi_mucosa_ulcer:
+      'https://cdn.humanatlas.io/digital-objects/ref-organ/small-intestine-male/v1.2/assets/3d-vh-m-small-intestine.glb',
+    lung_alveoli:
+      'https://cdn.humanatlas.io/digital-objects/ref-organ/lung-male/v1.4/assets/3d-vh-m-lung.glb',
+    brain_vascular:
+      'https://cdn.humanatlas.io/digital-objects/ref-organ/brain-male/v1.4/assets/3d-allen-m-brain.glb',
+    microvascular_inflammation:
+      'https://cdn.humanatlas.io/digital-objects/ref-organ/spleen-male/v1.3/assets/3d-vh-m-spleen.glb',
+  };
+
+  const glbCacheDir = path.join('/tmp', 'patho3d-glb-cache');
+  if (!fs.existsSync(glbCacheDir)) {
+    fs.mkdirSync(glbCacheDir, { recursive: true });
+  }
+
+  app.get('/api/anatomy/glb/:archetype', async (req, res) => {
+    const archetype = String(req.params.archetype ?? '');
+    const remoteUrl = NIH_HRA_GLB_URLS[archetype];
+    if (!remoteUrl) {
+      res.status(404).json({ error: 'Unknown 3D organ archetype' });
+      return;
+    }
+
+    const cachedFile = path.join(glbCacheDir, `${archetype}.glb`);
+    try {
+      if (fs.existsSync(cachedFile) && fs.statSync(cachedFile).size > 1024) {
+        res.setHeader('Content-Type', 'model/gltf-binary');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        fs.createReadStream(cachedFile).pipe(res);
+        return;
+      }
+
+      const upstream = await fetch(remoteUrl);
+      if (!upstream.ok) {
+        res.status(502).json({ error: `Failed to fetch NIH 3D model (${upstream.status})` });
+        return;
+      }
+
+      const buffer = Buffer.from(await upstream.arrayBuffer());
+      fs.writeFileSync(cachedFile, buffer);
+
+      res.setHeader('Content-Type', 'model/gltf-binary');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(buffer);
+    } catch {
+      res.status(502).json({ error: 'Failed to load NIH 3D reference organ' });
+    }
+  });
+
   // Server-side Gemini API endpoint for clinical pathophysiology & 3D scene synthesis
   app.post('/api/pathology/analyze', async (req, res) => {
     const question = String(req.body?.question ?? '').trim();

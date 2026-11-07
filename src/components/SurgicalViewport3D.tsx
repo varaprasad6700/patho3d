@@ -45,7 +45,7 @@ interface SurgicalViewport3DProps {
   onToggleInspector?: () => void;
 }
 
-export type PinDisplayMode = 'compact' | 'labels' | 'hidden';
+export type PinDisplayMode = 'leader' | 'compact' | 'labels' | 'hidden';
 
 interface ProjectedHotspotPos {
   id: string;
@@ -77,10 +77,13 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
   onToggleInspector,
 }) => {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
+  const [viewportSize, setViewportSize] = useState<{ w: number; h: number }>({ w: 960, h: 640 });
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [stagesExpanded, setStagesExpanded] = useState(false);
   const [hudHeaderVisible, setHudHeaderVisible] = useState(true);
-  const [pinDisplayMode, setPinDisplayMode] = useState<PinDisplayMode>('compact');
+  const [pinDisplayMode, setPinDisplayMode] = useState<PinDisplayMode>('leader');
+  const [netterPlateMode, setNetterPlateMode] = useState(true);
+  const [nihSubMeshCount, setNihSubMeshCount] = useState<number>(0);
   const [zenMode, setZenMode] = useState(false);
   const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -104,6 +107,9 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
   const pinDisplayModeRef = useRef<PinDisplayMode>(pinDisplayMode);
   pinDisplayModeRef.current = pinDisplayMode;
+
+  const netterPlateModeRef = useRef<boolean>(netterPlateMode);
+  netterPlateModeRef.current = netterPlateMode;
 
   const zenModeRef = useRef<boolean>(zenMode);
   zenModeRef.current = zenMode;
@@ -145,7 +151,13 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         setZenMode((prev) => !prev);
       } else if (key === 'p') {
         setPinDisplayMode((prev) =>
-          prev === 'compact' ? 'labels' : prev === 'labels' ? 'hidden' : 'compact'
+          prev === 'leader'
+            ? 'compact'
+            : prev === 'compact'
+            ? 'labels'
+            : prev === 'labels'
+            ? 'hidden'
+            : 'leader'
         );
       } else if (key === 'i' && onToggleInspector) {
         onToggleInspector();
@@ -157,7 +169,13 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
   const cyclePinMode = () => {
     setPinDisplayMode((prev) =>
-      prev === 'compact' ? 'labels' : prev === 'labels' ? 'hidden' : 'compact'
+      prev === 'leader'
+        ? 'compact'
+        : prev === 'compact'
+        ? 'labels'
+        : prev === 'labels'
+        ? 'hidden'
+        : 'leader'
     );
   };
 
@@ -202,10 +220,13 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
     const width = container.clientWidth || 960;
     const height = container.clientHeight || 640;
+    setViewportSize({ w: width, h: height });
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x070b12);
-    scene.fog = new THREE.FogExp2(0x070b12, 0.065);
+    const plateBg = new THREE.Color(0x110d10);
+    const surgicalBg = new THREE.Color(0x070b12);
+    scene.background = netterPlateModeRef.current ? plateBg : surgicalBg;
+    scene.fog = new THREE.FogExp2(netterPlateModeRef.current ? 0x110d10 : 0x070b12, 0.055);
 
     // Camera & Target framed cleanly in the center of the viewport
     cameraGoalTargetRef.current.set(0, -0.1, 0);
@@ -225,7 +246,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12;
+    renderer.toneMappingExposure = 1.15;
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = !isSoftwareGl;
@@ -239,11 +260,11 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
     pmremGenerator.dispose();
 
-    // Balanced 3-Point Surgical Lighting Rig + Cool Hemisphere Fill
-    const hemiLight = new THREE.HemisphereLight(0x93c5fd, 0x0f172a, 0.85);
+    // Balanced 3-Point Netter Gouache / Surgical Lighting Rig
+    const hemiLight = new THREE.HemisphereLight(0xfde68a, 0x1e1b4b, 0.9);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff7ed, 2.4);
+    const keyLight = new THREE.DirectionalLight(0xfffbeb, 2.55);
     keyLight.position.set(3.2, 4.5, 3.8);
     if (!isSoftwareGl) {
       keyLight.castShadow = true;
@@ -260,11 +281,11 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     }
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.95);
+    const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.9);
     fillLight.position.set(-3.5, 1.2, 2.2);
     scene.add(fillLight);
 
-    const rimLight = new THREE.DirectionalLight(0x2dd4bf, 1.35);
+    const rimLight = new THREE.DirectionalLight(0xfda4af, 1.35);
     rimLight.position.set(0.0, 2.5, -3.6);
     scene.add(rimLight);
 
@@ -328,8 +349,8 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     // 3D Hotspot Markers Group (Layer 1 for fast raycasting)
     const hotspotGroup = new THREE.Group();
     scene.add(hotspotGroup);
-    const hotspotSphereGeo = new THREE.SphereGeometry(0.055, 16, 16);
-    const hotspotHaloGeo = new THREE.RingGeometry(0.075, 0.11, 24);
+    const hotspotSphereGeo = new THREE.SphereGeometry(0.052, 16, 16);
+    const hotspotHaloGeo = new THREE.RingGeometry(0.072, 0.105, 24);
     const hotspotMeshes: THREE.Mesh[] = [];
 
     const syncHotspotMeshes = () => {
@@ -372,7 +393,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       const nextProjected: ProjectedHotspotPos[] = hotspotsRef.current.map((hs, idx) => {
         _projVec.set(hs.position3D[0], hs.position3D[1], hs.position3D[2]);
         _projVec.project(camera);
-        const rawX = (_projVec.x * 0.5 + 0.5) * cw + (idx % 2 === 0 ? -14 : 14);
+        const rawX = (_projVec.x * 0.5 + 0.5) * cw + (idx % 2 === 0 ? -8 : 8);
         const rawY = (-(_projVec.y * 0.5) + 0.5) * ch;
         const x = Math.max(80, Math.min(cw - 80, rawX));
         const y = Math.max(105, Math.min(maxPinY, rawY));
@@ -380,18 +401,20 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         return { id: hs.id, x, y, visible };
       });
 
-      // Prevent vertical badge overlap when two pins project close together
-      for (let i = 0; i < nextProjected.length; i++) {
-        for (let j = i + 1; j < nextProjected.length; j++) {
-          const a = nextProjected[i];
-          const b = nextProjected[j];
-          if (Math.abs(a.x - b.x) < 120 && Math.abs(a.y - b.y) < 34) {
-            if (a.y <= b.y) {
-              a.y = Math.max(105, a.y - 17);
-              b.y = Math.min(maxPinY, b.y + 17);
-            } else {
-              b.y = Math.max(105, b.y - 17);
-              a.y = Math.min(maxPinY, a.y + 17);
+      // Prevent vertical badge overlap when two pins project close together in compact/labels mode
+      if (pinDisplayModeRef.current !== 'leader') {
+        for (let i = 0; i < nextProjected.length; i++) {
+          for (let j = i + 1; j < nextProjected.length; j++) {
+            const a = nextProjected[i];
+            const b = nextProjected[j];
+            if (Math.abs(a.x - b.x) < 120 && Math.abs(a.y - b.y) < 34) {
+              if (a.y <= b.y) {
+                a.y = Math.max(105, a.y - 17);
+                b.y = Math.min(maxPinY, b.y + 17);
+              } else {
+                b.y = Math.max(105, b.y - 17);
+                a.y = Math.min(maxPinY, a.y + 17);
+              }
             }
           }
         }
@@ -400,9 +423,25 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       setProjectedPins(nextProjected);
     };
 
-    // Build initial anatomy rig
+    // Build initial anatomy rig (loads NIH HuBMAP .glb asynchronously and applies Netter shader)
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
-    let activeRig: BuiltAnatomyRig = buildAnatomyRig(archetypeRef.current, maxAniso, isSoftwareGl);
+    setNihSubMeshCount(0);
+    let activeRig: BuiltAnatomyRig = buildAnatomyRig(
+      archetypeRef.current,
+      maxAniso,
+      isSoftwareGl,
+      (count) => {
+        setNihSubMeshCount(count);
+        updateAnatomyRig(
+          activeRig,
+          paramsRef.current,
+          0,
+          scaleModeRef.current,
+          cutawayRef.current
+        );
+        renderer.render(scene, camera);
+      }
+    );
     scene.add(activeRig.rootGroup);
     syncHotspotMeshes();
     computeProjectedPins();
@@ -414,7 +453,18 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     rebuildArchetypeRef.current = (newArch: Archetype3D) => {
       scene.remove(activeRig.rootGroup);
       activeRig.dispose();
-      activeRig = buildAnatomyRig(newArch, maxAniso, isSoftwareGl);
+      setNihSubMeshCount(0);
+      activeRig = buildAnatomyRig(newArch, maxAniso, isSoftwareGl, (count) => {
+        setNihSubMeshCount(count);
+        updateAnatomyRig(
+          activeRig,
+          paramsRef.current,
+          0,
+          scaleModeRef.current,
+          cutawayRef.current
+        );
+        renderer.render(scene, camera);
+      });
       scene.add(activeRig.rootGroup);
       syncHotspotMeshes();
       cameraGoalTargetRef.current.set(0, -0.1, 0);
@@ -455,6 +505,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       if (!container) return;
       const w = container.clientWidth || 960;
       const h = container.clientHeight || 640;
+      setViewportSize({ w, h });
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
@@ -505,6 +556,15 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       const dt = Math.min(now - prevTime, 0.1);
       prevTime = now;
       const elapsed = now - startTime;
+
+      // Sync Netter Plate vs Surgical Dark backdrop dynamically
+      const targetBgHex = netterPlateModeRef.current ? 0x110d10 : 0x070b12;
+      if ((scene.background as THREE.Color).getHex() !== targetBgHex) {
+        (scene.background as THREE.Color).setHex(targetBgHex);
+        if (scene.fog instanceof THREE.FogExp2) {
+          scene.fog.color.setHex(targetBgHex);
+        }
+      }
 
       // Smooth camera target & position damping
       const dampFactor = 1 - Math.exp(-5.5 * dt);
@@ -589,16 +649,50 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
   const activeStageIndex = Math.min(3, Math.max(0, Math.round(scrubberValue)));
   const currentStage = stages[activeStageIndex];
-  const selectedHotspot = hotspots.find((h) => h.id === selectedHotspotId) ?? hotspots[0];
+
+  // Compute Netter-style left & right margin callout slots so callout cards NEVER cover the central 3D organ
+  const leaderCallouts = hotspots.map((hs, idx) => {
+    const proj = projectedPins.find((p) => p.id === hs.id);
+    const side: 'left' | 'right' = idx % 2 === 0 ? 'left' : 'right';
+    const slotRow = Math.floor(idx / 2);
+    const cardWidth = Math.min(215, Math.max(165, Math.floor(viewportSize.w * 0.22)));
+    const cardX = side === 'left' ? 14 : Math.max(200, viewportSize.w - cardWidth - 14);
+    const cardY = 128 + slotRow * 92;
+    const anchorEndX = side === 'left' ? cardX + cardWidth : cardX;
+    const anchorEndY = cardY + 26;
+    const targetX = proj ? proj.x : viewportSize.w * 0.5 + (side === 'left' ? -55 : 55);
+    const targetY = proj ? proj.y : viewportSize.h * 0.45 + (slotRow === 0 ? -35 : 35);
+    const elbowX =
+      side === 'left'
+        ? Math.min(targetX - 18, anchorEndX + 26)
+        : Math.max(targetX + 18, anchorEndX - 26);
+
+    return {
+      hs,
+      side,
+      cardWidth,
+      cardX,
+      cardY,
+      anchorEndX,
+      anchorEndY,
+      elbowX,
+      targetX,
+      targetY,
+      visible: proj ? proj.visible : true,
+    };
+  });
 
   return (
     <section
       aria-label="3D Anatomical and Pathophysiological Viewport"
-      className="relative flex-1 min-h-[460px] lg:min-h-0 h-full w-full bg-[#070B12] overflow-hidden select-none"
+      className={`relative flex-1 min-h-[460px] lg:min-h-0 h-full w-full overflow-hidden select-none ${
+        netterPlateMode ? 'bg-[#110D10]' : 'bg-[#070B12]'
+      }`}
       data-testid="surgical-viewport-3d"
       data-archetype={archetype}
       data-stage={activeStageIndex}
       data-scale-mode={scaleMode}
+      data-nih-meshes={nihSubMeshCount}
     >
       {/* Dedicated Empty WebGL Mount Container */}
       <div ref={canvasMountRef} className="absolute inset-0 w-full h-full" />
@@ -615,6 +709,11 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                     <span className="text-teal-400 font-semibold">{icdCode}</span>
                     <span aria-hidden="true">·</span>
                     <span>Stage {activeStageIndex}/3</span>
+                    {nihSubMeshCount > 0 && (
+                      <span className="shrink-0 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[10px]">
+                        NIH 3D ({nihSubMeshCount})
+                      </span>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -649,7 +748,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
         {/* Right: Quick View & Declutter Control Strip (Always accessible to hide/show overlays) */}
         <div className="pointer-events-auto ml-auto flex flex-wrap items-center gap-1.5 bg-[#0B111E]/95 border border-slate-800 rounded-xl p-1.5 shadow-lg">
-          {/* 1. Hotspot Pin Mode Toggle: Compact Numbers / Full Labels / Off */}
+          {/* 1. Hotspot Callout Mode Toggle: Netter Leader Lines / Numbers / Labels / Off */}
           {!zenMode && scaleMode === 'macro' && (
             <button
               type="button"
@@ -660,21 +759,40 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                   ? 'bg-slate-900 text-slate-400 hover:text-white'
                   : 'bg-teal-950/80 text-teal-300 border border-teal-500/40 hover:bg-teal-900/60'
               }`}
-              title="Cycle 3D Hotspot Markers: Compact Numbers, Full Labels, or Hidden (Shortcut: P)"
+              title="Cycle Anatomical Callouts: Netter Margin Leader Lines, Compact Numbers, Full Labels, or Off (Shortcut: P)"
             >
               <MapPin className="w-3.5 h-3.5" />
               <span>
-                Pins:{' '}
-                {pinDisplayMode === 'compact'
+                Callouts:{' '}
+                {pinDisplayMode === 'leader'
+                  ? 'Netter Lines'
+                  : pinDisplayMode === 'compact'
                   ? 'Numbers'
                   : pinDisplayMode === 'labels'
-                  ? 'Labels'
+                  ? 'Pins'
                   : 'Off'}
               </span>
             </button>
           )}
 
-          {/* 2. Bottom Controls Toggle (H) */}
+          {/* 2. Netter Plate Lighting Toggle */}
+          {!zenMode && (
+            <button
+              type="button"
+              onClick={() => setNetterPlateMode((prev) => !prev)}
+              data-testid="toggle-plate-btn"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                netterPlateMode
+                  ? 'bg-amber-950/80 text-amber-300 border border-amber-500/40 hover:bg-amber-900/50'
+                  : 'bg-slate-900 text-slate-400 hover:text-white'
+              }`}
+              title="Toggle Netter Atlas Gouache Plate vs Dark Surgical Backdrop"
+            >
+              <span>{netterPlateMode ? 'Plate: Netter' : 'Plate: Dark'}</span>
+            </button>
+          )}
+
+          {/* 3. Bottom Controls Toggle (H) */}
           {!zenMode && (
             <button
               type="button"
@@ -696,7 +814,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
             </button>
           )}
 
-          {/* 3. Zen / Clean 3D View Toggle (Z) */}
+          {/* 4. Zen / Clean 3D View Toggle (Z) */}
           <button
             type="button"
             onClick={() => setZenMode((prev) => !prev)}
@@ -712,7 +830,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
             <span>{zenMode ? 'Exit Clean 3D (Z)' : 'Clean 3D (Z)'}</span>
           </button>
 
-          {/* 4. Right Clinical Inspector Panel Collapse/Expand Toggle (I) */}
+          {/* 5. Right Clinical Inspector Panel Collapse/Expand Toggle (I) */}
           {onToggleInspector && (
             <button
               type="button"
@@ -741,19 +859,59 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         </div>
       </div>
 
-      {/* Interactive 3D Projected Hotspot Markers (Compact numbered pins by default — zero clutter!) */}
-      {!zenMode && scaleMode === 'macro' && pinDisplayMode !== 'hidden' && (
+      {/* OPTION 1: NETTER ATLAS MARGIN LEADER-LINE CALLOUTS ('leader' mode — zero occlusion over the 3D organ!) */}
+      {!zenMode && scaleMode === 'macro' && pinDisplayMode === 'leader' && (
         <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
-          {hotspots.map((hs, idx) => {
-            const proj = projectedPins.find((p) => p.id === hs.id);
+          {/* SVG Leader Lines from 3D tissue locus out to left/right margin callout plates */}
+          <svg
+            className="pointer-events-none absolute inset-0 w-full h-full"
+            aria-hidden="true"
+          >
+            {leaderCallouts.map((item) => {
+              if (!item.visible) return null;
+              const isSelected = item.hs.id === selectedHotspotId;
+              const isHovered = item.hs.id === hoveredPinId;
+              const strokeColor =
+                isSelected || isHovered
+                  ? '#2dd4bf'
+                  : item.hs.severity === 'critical'
+                  ? '#f87171'
+                  : '#fbbf24';
+              const pathD = `M ${item.targetX} ${item.targetY} L ${item.elbowX} ${item.anchorEndY} L ${item.anchorEndX} ${item.anchorEndY}`;
+              return (
+                <g key={`leader-svg-${item.hs.id}`}>
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke="#000000"
+                    strokeWidth={isSelected ? 3.5 : 2.5}
+                    strokeOpacity={0.65}
+                  />
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={isSelected || isHovered ? 2 : 1.35}
+                    strokeDasharray={isSelected ? 'none' : '3 2'}
+                  />
+                  <circle
+                    cx={item.targetX}
+                    cy={item.targetY}
+                    r={isSelected ? 5 : 3.8}
+                    fill={strokeColor}
+                    stroke="#090D16"
+                    strokeWidth={1.5}
+                  />
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Margin Callout Plates Docked on Left & Right Edges */}
+          {leaderCallouts.map((item) => {
+            if (!item.visible) return null;
+            const { hs } = item;
             const isSelected = hs.id === selectedHotspotId;
-            const isHovered = hs.id === hoveredPinId;
-            const showFullText = pinDisplayMode === 'labels' || isSelected || isHovered;
-            const leftStyle = proj ? `${proj.x}px` : `${32 + (idx % 2) * 34}%`;
-            const topStyle = proj ? `${proj.y}px` : `${35 + idx * 11}%`;
-
-            if (proj && !proj.visible) return null;
-
             return (
               <button
                 key={hs.id}
@@ -762,39 +920,97 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                 onMouseEnter={() => setHoveredPinId(hs.id)}
                 onMouseLeave={() => setHoveredPinId(null)}
                 style={{
-                  left: leftStyle,
-                  top: topStyle,
-                  transform: 'translate(-50%, -50%)',
+                  left: `${item.cardX}px`,
+                  top: `${item.cardY}px`,
+                  width: `${item.cardWidth}px`,
                 }}
-                className={`pointer-events-auto absolute flex items-center gap-1.5 rounded-full transition-all duration-150 whitespace-nowrap shadow-md border cursor-pointer ${
-                  showFullText ? 'px-2.5 py-1' : 'w-7 h-7 justify-center'
-                } ${
+                className={`pointer-events-auto absolute text-left rounded-xl px-2.5 py-1.5 transition-all duration-150 shadow-lg border cursor-pointer ${
                   isSelected
-                    ? 'bg-teal-600 text-white border-teal-300 scale-105 z-20'
-                    : 'bg-[#0B111E]/90 text-slate-200 border-slate-700 hover:border-teal-400 hover:text-white'
+                    ? 'bg-teal-950/95 text-white border-teal-400 ring-1 ring-teal-400/50 z-20'
+                    : 'bg-[#0B111E]/90 text-slate-200 border-slate-800/90 hover:border-teal-400/70 hover:text-white'
                 }`}
                 aria-label={`Inspect Hotspot ${hs.indexNumber}: ${hs.label}`}
                 aria-pressed={isSelected}
               >
-                <span
-                  className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[11px] font-mono font-bold ${
-                    isSelected
-                      ? 'bg-white text-teal-900'
-                      : hs.severity === 'critical'
-                      ? 'bg-red-500/25 text-red-300'
-                      : 'bg-amber-500/25 text-amber-300'
-                  }`}
-                >
-                  {hs.indexNumber}
-                </span>
-                {showFullText && (
-                  <span className="text-xs font-medium max-w-[165px] truncate">{hs.label}</span>
-                )}
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-mono font-bold shrink-0 ${
+                      isSelected
+                        ? 'bg-teal-400 text-slate-950'
+                        : hs.severity === 'critical'
+                        ? 'bg-red-500/25 text-red-300'
+                        : 'bg-amber-500/25 text-amber-300'
+                    }`}
+                  >
+                    {hs.indexNumber}
+                  </span>
+                  <span className="text-xs font-semibold truncate">{hs.label}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono truncate pl-5 mt-0.5">
+                  {hs.anatomicalStructure}
+                </div>
               </button>
             );
           })}
         </div>
       )}
+
+      {/* Interactive 3D Projected Hotspot Markers ('compact' or 'labels' mode) */}
+      {!zenMode &&
+        scaleMode === 'macro' &&
+        (pinDisplayMode === 'compact' || pinDisplayMode === 'labels') && (
+          <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
+            {hotspots.map((hs, idx) => {
+              const proj = projectedPins.find((p) => p.id === hs.id);
+              const isSelected = hs.id === selectedHotspotId;
+              const isHovered = hs.id === hoveredPinId;
+              const showFullText = pinDisplayMode === 'labels' || isSelected || isHovered;
+              const leftStyle = proj ? `${proj.x}px` : `${32 + (idx % 2) * 34}%`;
+              const topStyle = proj ? `${proj.y}px` : `${35 + idx * 11}%`;
+
+              if (proj && !proj.visible) return null;
+
+              return (
+                <button
+                  key={hs.id}
+                  type="button"
+                  onClick={() => handleHotspotButtonClick(hs.id)}
+                  onMouseEnter={() => setHoveredPinId(hs.id)}
+                  onMouseLeave={() => setHoveredPinId(null)}
+                  style={{
+                    left: leftStyle,
+                    top: topStyle,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                  className={`pointer-events-auto absolute flex items-center gap-1.5 rounded-full transition-all duration-150 whitespace-nowrap shadow-md border cursor-pointer ${
+                    showFullText ? 'px-2.5 py-1' : 'w-7 h-7 justify-center'
+                  } ${
+                    isSelected
+                      ? 'bg-teal-600 text-white border-teal-300 scale-105 z-20'
+                      : 'bg-[#0B111E]/90 text-slate-200 border-slate-700 hover:border-teal-400 hover:text-white'
+                  }`}
+                  aria-label={`Inspect Hotspot ${hs.indexNumber}: ${hs.label}`}
+                  aria-pressed={isSelected}
+                >
+                  <span
+                    className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[11px] font-mono font-bold ${
+                      isSelected
+                        ? 'bg-white text-teal-900'
+                        : hs.severity === 'critical'
+                        ? 'bg-red-500/25 text-red-300'
+                        : 'bg-amber-500/25 text-amber-300'
+                    }`}
+                  >
+                    {hs.indexNumber}
+                  </span>
+                  {showFullText && (
+                    <span className="text-xs font-medium max-w-[165px] truncate">{hs.label}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
       {/* Sleek Collapsible Bottom Timeline & Scale Dock */}
       {!zenMode && !dockCollapsed && (
