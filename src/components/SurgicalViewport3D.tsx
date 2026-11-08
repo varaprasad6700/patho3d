@@ -223,16 +223,16 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     setViewportSize({ w: width, h: height });
 
     const scene = new THREE.Scene();
-    const plateBg = new THREE.Color(0x110d10);
+    const plateBg = new THREE.Color(0xf2ece1);
     const surgicalBg = new THREE.Color(0x070b12);
     scene.background = netterPlateModeRef.current ? plateBg : surgicalBg;
-    scene.fog = new THREE.FogExp2(netterPlateModeRef.current ? 0x110d10 : 0x070b12, 0.055);
+    scene.fog = new THREE.FogExp2(netterPlateModeRef.current ? 0xf2ece1 : 0x070b12, 0.032);
 
     // Camera & Target framed cleanly in the center of the viewport
-    cameraGoalTargetRef.current.set(0, -0.1, 0);
+    cameraGoalTargetRef.current.set(0, -0.05, 0);
 
-    const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 60);
-    camera.position.set(0.35, 0.45, 5.1);
+    const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 60);
+    camera.position.set(0.25, 0.35, 4.55);
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -246,7 +246,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.18;
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = !isSoftwareGl;
@@ -261,10 +261,10 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     pmremGenerator.dispose();
 
     // Balanced 3-Point Netter Gouache / Surgical Lighting Rig
-    const hemiLight = new THREE.HemisphereLight(0xfde68a, 0x1e1b4b, 0.9);
+    const hemiLight = new THREE.HemisphereLight(0xfffbeb, 0x78350f, 1.15);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfffbeb, 2.55);
+    const keyLight = new THREE.DirectionalLight(0xfffbeb, 2.65);
     keyLight.position.set(3.2, 4.5, 3.8);
     if (!isSoftwareGl) {
       keyLight.castShadow = true;
@@ -281,59 +281,61 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     }
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.9);
+    const fillLight = new THREE.DirectionalLight(0xfef3c7, 1.05);
     fillLight.position.set(-3.5, 1.2, 2.2);
     scene.add(fillLight);
 
-    const rimLight = new THREE.DirectionalLight(0xfda4af, 1.35);
+    const rimLight = new THREE.DirectionalLight(0xfde68a, 1.15);
     rimLight.position.set(0.0, 2.5, -3.6);
     scene.add(rimLight);
 
-    // Grounded Surgical Reference Grid & Contact Shadow Disc
+    // Subtle Ground Shadow Disc
     const shadowCanvas = document.createElement('canvas');
     shadowCanvas.width = 128;
     shadowCanvas.height = 128;
     const sCtx = shadowCanvas.getContext('2d');
     if (sCtx) {
       const grad = sCtx.createRadialGradient(64, 64, 6, 64, 64, 62);
-      grad.addColorStop(0, 'rgba(0, 0, 0, 0.65)');
-      grad.addColorStop(0.6, 'rgba(0, 0, 0, 0.25)');
-      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      grad.addColorStop(0, 'rgba(60, 40, 25, 0.28)');
+      grad.addColorStop(0.6, 'rgba(60, 40, 25, 0.10)');
+      grad.addColorStop(1, 'rgba(60, 40, 25, 0)');
       sCtx.fillStyle = grad;
       sCtx.fillRect(0, 0, 128, 128);
     }
     const contactShadowTex = new THREE.CanvasTexture(shadowCanvas);
-    const contactShadowGeo = new THREE.CircleGeometry(1.85, 32);
+    const contactShadowGeo = new THREE.CircleGeometry(1.75, 32);
     const contactShadowMat = new THREE.MeshBasicMaterial({
       map: contactShadowTex,
       transparent: true,
       depthWrite: false,
-      opacity: 0.55,
+      opacity: 0.45,
     });
     const contactShadowMesh = new THREE.Mesh(contactShadowGeo, contactShadowMat);
     contactShadowMesh.rotation.x = -Math.PI / 2;
-    contactShadowMesh.position.y = -1.52;
+    contactShadowMesh.position.y = -1.48;
     scene.add(contactShadowMesh);
 
-    const ringGeo = new THREE.RingGeometry(1.55, 1.58, 64);
+    const ringGeo = new THREE.RingGeometry(1.52, 1.54, 64);
     const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x1e293b,
+      color: 0xb49b7d,
       side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.35,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
     });
     const ringMesh = new THREE.Mesh(ringGeo, ringMat);
     ringMesh.rotation.x = -Math.PI / 2;
-    ringMesh.position.y = -1.5;
+    ringMesh.position.y = -1.46;
     scene.add(ringMesh);
 
     // OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, -0.1, 0);
+    controls.target.set(0, -0.05, 0);
     controls.enableDamping = !isSoftwareGl;
     controls.dampingFactor = 0.06;
-    controls.minDistance = 2.4;
+    controls.minDistance = 2.2;
     controls.maxDistance = 7.5;
     controls.maxPolarAngle = Math.PI * 0.85;
 
@@ -342,15 +344,15 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     });
 
     resetCameraTriggerRef.current = () => {
-      cameraGoalTargetRef.current.set(0, -0.1, 0);
-      cameraGoalPosRef.current = new THREE.Vector3(0.35, 0.45, 5.1);
+      cameraGoalTargetRef.current.set(0, -0.05, 0);
+      cameraGoalPosRef.current = new THREE.Vector3(0.25, 0.35, 4.55);
     };
 
     // 3D Hotspot Markers Group (Layer 1 for fast raycasting)
     const hotspotGroup = new THREE.Group();
     scene.add(hotspotGroup);
-    const hotspotSphereGeo = new THREE.SphereGeometry(0.052, 16, 16);
-    const hotspotHaloGeo = new THREE.RingGeometry(0.072, 0.105, 24);
+    const hotspotSphereGeo = new THREE.SphereGeometry(0.042, 16, 16);
+    const hotspotHaloGeo = new THREE.RingGeometry(0.058, 0.085, 24);
     const hotspotMeshes: THREE.Mesh[] = [];
 
     const syncHotspotMeshes = () => {
@@ -363,7 +365,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       hotspotsRef.current.forEach((hs) => {
         const isSelected = hs.id === selectedHotspotIdRef.current;
         const mat = new THREE.MeshBasicMaterial({
-          color: isSelected ? 0x14b8a6 : hs.severity === 'critical' ? 0xef4444 : 0xf59e0b,
+          color: isSelected ? 0x0d9488 : hs.severity === 'critical' ? 0xb91c1c : 0xd97706,
         });
         const pinMesh = new THREE.Mesh(hotspotSphereGeo, mat);
         pinMesh.position.set(hs.position3D[0], hs.position3D[1], hs.position3D[2]);
@@ -371,10 +373,10 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         pinMesh.userData.hotspotId = hs.id;
 
         const haloMat = new THREE.MeshBasicMaterial({
-          color: isSelected ? 0x2dd4bf : 0xffffff,
+          color: isSelected ? 0x0f766e : 0x1e293b,
           side: THREE.DoubleSide,
           transparent: true,
-          opacity: isSelected ? 0.85 : 0.4,
+          opacity: isSelected ? 0.85 : 0.45,
         });
         const haloMesh = new THREE.Mesh(hotspotHaloGeo, haloMat);
         pinMesh.add(haloMesh);
@@ -401,7 +403,6 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         return { id: hs.id, x, y, visible };
       });
 
-      // Prevent vertical badge overlap when two pins project close together in compact/labels mode
       if (pinDisplayModeRef.current !== 'leader') {
         for (let i = 0; i < nextProjected.length; i++) {
           for (let j = i + 1; j < nextProjected.length; j++) {
@@ -467,8 +468,8 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       });
       scene.add(activeRig.rootGroup);
       syncHotspotMeshes();
-      cameraGoalTargetRef.current.set(0, -0.1, 0);
-      cameraGoalPosRef.current = new THREE.Vector3(0.35, 0.45, 5.1);
+      cameraGoalTargetRef.current.set(0, -0.05, 0);
+      cameraGoalPosRef.current = new THREE.Vector3(0.25, 0.35, 4.55);
       updateAnatomyRig(
         activeRig,
         paramsRef.current,
@@ -500,7 +501,6 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     };
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
 
-    // Resize handling (both window resize and container ResizeObserver when Inspector collapses/expands)
     const onResize = () => {
       if (!container) return;
       const w = container.clientWidth || 960;
@@ -522,7 +522,6 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       resizeObserver.observe(container);
     }
 
-    // Paced Animation Loop (uses performance.now() — zero THREE.Clock deprecation warning)
     let frameId = 0;
     let disposed = false;
     const startTime = performance.now() * 0.001;
@@ -557,8 +556,8 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       prevTime = now;
       const elapsed = now - startTime;
 
-      // Sync Netter Plate vs Surgical Dark backdrop dynamically
-      const targetBgHex = netterPlateModeRef.current ? 0x110d10 : 0x070b12;
+      // Sync Netter Ivory Parchment Plate (0xf2ece1) vs Surgical Dark backdrop (0x070b12)
+      const targetBgHex = netterPlateModeRef.current ? 0xf2ece1 : 0x070b12;
       if ((scene.background as THREE.Color).getHex() !== targetBgHex) {
         (scene.background as THREE.Color).setHex(targetBgHex);
         if (scene.fog instanceof THREE.FogExp2) {
@@ -566,7 +565,6 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         }
       }
 
-      // Smooth camera target & position damping
       const dampFactor = 1 - Math.exp(-5.5 * dt);
       _targetFocus.copy(cameraGoalTargetRef.current);
       controls.target.lerp(_targetFocus, dampFactor);
@@ -581,7 +579,6 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
       controls.update();
 
-      // Update parametric 3D organ & cellular rig
       updateAnatomyRig(
         activeRig,
         paramsRef.current,
@@ -590,7 +587,6 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         cutawayRef.current
       );
 
-      // Billboard hotspot halos toward camera (hide when zenMode or pinDisplayMode === 'hidden')
       hotspotGroup.visible =
         scaleModeRef.current === 'macro' &&
         !zenModeRef.current &&
@@ -600,7 +596,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         const isSel = pin.userData.hotspotId === selectedHotspotIdRef.current;
         const mat = pin.material as THREE.MeshBasicMaterial;
         if (isSel) {
-          mat.color.setHex(0x14b8a6);
+          mat.color.setHex(0x0d9488);
           pin.scale.setScalar(1.25);
         } else {
           pin.scale.setScalar(1.0);
@@ -612,7 +608,6 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
       renderer.render(scene, camera);
 
-      // Throttle 2D projected DOM pin coordinate updates to ~8Hz
       if (elapsed - lastPinSyncTime > 0.12) {
         lastPinSyncTime = elapsed;
         computeProjectedPins();
@@ -655,9 +650,9 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     const proj = projectedPins.find((p) => p.id === hs.id);
     const side: 'left' | 'right' = idx % 2 === 0 ? 'left' : 'right';
     const slotRow = Math.floor(idx / 2);
-    const cardWidth = Math.min(215, Math.max(165, Math.floor(viewportSize.w * 0.22)));
-    const cardX = side === 'left' ? 14 : Math.max(200, viewportSize.w - cardWidth - 14);
-    const cardY = 128 + slotRow * 92;
+    const cardWidth = Math.min(220, Math.max(168, Math.floor(viewportSize.w * 0.23)));
+    const cardX = side === 'left' ? 18 : Math.max(200, viewportSize.w - cardWidth - 18);
+    const cardY = 136 + slotRow * 98;
     const anchorEndX = side === 'left' ? cardX + cardWidth : cardX;
     const anchorEndY = cardY + 26;
     const targetX = proj ? proj.x : viewportSize.w * 0.5 + (side === 'left' ? -55 : 55);
@@ -686,7 +681,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     <section
       aria-label="3D Anatomical and Pathophysiological Viewport"
       className={`relative flex-1 min-h-[460px] lg:min-h-0 h-full w-full overflow-hidden select-none ${
-        netterPlateMode ? 'bg-[#110D10]' : 'bg-[#070B12]'
+        netterPlateMode ? 'bg-[#F2ECE1]' : 'bg-[#070B12]'
       }`}
       data-testid="surgical-viewport-3d"
       data-archetype={archetype}
@@ -697,20 +692,48 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       {/* Dedicated Empty WebGL Mount Container */}
       <div ref={canvasMountRef} className="absolute inset-0 w-full h-full" />
 
+      {/* Classic Netter Atlas Double-Ruled Medical Illustration Border when in Netter Plate Mode */}
+      {netterPlateMode && !zenMode && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-2.5 border-2 border-[#8C2D19]/35 rounded-lg z-10 shadow-[inset_0_0_45px_rgba(120,80,40,0.12)]"
+        >
+          <div className="absolute inset-1 border border-[#785A3C]/25 rounded" />
+        </div>
+      )}
+
       {/* Top Overlay Bar: Compact Collapsible Case Title (Left) + View/Declutter Controls (Right) */}
-      <div className="pointer-events-none absolute top-3 left-3 right-3 flex flex-wrap items-start justify-between gap-2 z-20">
+      <div className="pointer-events-none absolute top-4 left-4 right-4 flex items-start justify-between gap-2 z-20">
         {/* Left: Compact Collapsible Case Title Card */}
         {!zenMode && (
-          <div className="pointer-events-auto flex items-center gap-2 bg-[#0B111E]/90 border border-slate-800/90 rounded-xl px-3 py-2 max-w-md shadow-md">
+          <div
+            className={`pointer-events-auto flex items-center gap-2 rounded-xl px-3 py-1.5 max-w-[380px] min-w-0 shadow-md border ${
+              netterPlateMode
+                ? 'bg-[#FAF6EE]/95 border-[#C8B9A6] text-[#1C1917]'
+                : 'bg-[#0B111E]/90 border-slate-800/90 text-white'
+            }`}
+          >
             {hudHeaderVisible ? (
               <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 font-mono">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="text-teal-400 font-semibold">{icdCode}</span>
+                <div
+                  className={`flex items-center justify-between gap-1.5 text-[11px] font-mono ${
+                    netterPlateMode ? 'text-[#78350F]' : 'text-slate-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-bold uppercase tracking-wider text-[#991B1B] truncate">
+                      {icdCode}
+                    </span>
                     <span aria-hidden="true">·</span>
-                    <span>Stage {activeStageIndex}/3</span>
+                    <span className="shrink-0">S{activeStageIndex}/3</span>
                     {nihSubMeshCount > 0 && (
-                      <span className="shrink-0 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[10px]">
+                      <span
+                        className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          netterPlateMode
+                            ? 'bg-[#991B1B]/10 border border-[#991B1B]/30 text-[#991B1B]'
+                            : 'bg-amber-500/15 border border-amber-500/40 text-amber-300'
+                        }`}
+                      >
                         NIH 3D ({nihSubMeshCount})
                       </span>
                     )}
@@ -718,17 +741,29 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                   <button
                     type="button"
                     onClick={() => setHudHeaderVisible(false)}
-                    className="text-slate-400 hover:text-white text-[11px] px-1 rounded cursor-pointer"
+                    className={`shrink-0 text-[11px] px-1 rounded cursor-pointer ${
+                      netterPlateMode
+                        ? 'text-[#78350F] hover:text-black'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
                     title="Minimize title overlay"
                     aria-label="Minimize title overlay"
                   >
                     Hide
                   </button>
                 </div>
-                <h1 className="text-sm font-bold tracking-tight text-white truncate">
+                <h1
+                  className={`text-sm font-bold tracking-tight truncate ${
+                    netterPlateMode ? 'text-[#1C1917] font-serif' : 'text-white'
+                  }`}
+                >
                   {caseTitle}
                 </h1>
-                <p className="text-[11px] text-slate-400 truncate">
+                <p
+                  className={`text-[11px] truncate italic ${
+                    netterPlateMode ? 'text-[#57534E]' : 'text-slate-400'
+                  }`}
+                >
                   {currentStage.stageName}
                 </p>
               </div>
@@ -736,69 +771,67 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
               <button
                 type="button"
                 onClick={() => setHudHeaderVisible(true)}
-                className="flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white cursor-pointer"
+                className={`flex items-center gap-1.5 text-xs font-medium cursor-pointer ${
+                  netterPlateMode ? 'text-[#1C1917]' : 'text-slate-300 hover:text-white'
+                }`}
                 aria-label="Show case title overlay"
               >
-                <span className="font-mono text-teal-400">{icdCode}</span>
-                <span>· Show Title</span>
+                <span className="font-mono text-[#991B1B] font-bold">{icdCode}</span>
+                <span>· Show Plate Title</span>
               </button>
             )}
           </div>
         )}
 
-        {/* Right: Quick View & Declutter Control Strip (Always accessible to hide/show overlays) */}
-        <div className="pointer-events-auto ml-auto flex flex-wrap items-center gap-1.5 bg-[#0B111E]/95 border border-slate-800 rounded-xl p-1.5 shadow-lg">
-          {/* 1. Hotspot Callout Mode Toggle: Netter Leader Lines / Numbers / Labels / Off */}
+        {/* Right: Quick View & Declutter Control Strip */}
+        <div className="pointer-events-auto ml-auto shrink-0 flex items-center gap-1 bg-[#0B111E]/95 border border-slate-800 rounded-xl p-1 shadow-lg">
           {!zenMode && scaleMode === 'macro' && (
             <button
               type="button"
               onClick={cyclePinMode}
               data-testid="toggle-pins-btn"
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
                 pinDisplayMode === 'hidden'
                   ? 'bg-slate-900 text-slate-400 hover:text-white'
                   : 'bg-teal-950/80 text-teal-300 border border-teal-500/40 hover:bg-teal-900/60'
               }`}
               title="Cycle Anatomical Callouts: Netter Margin Leader Lines, Compact Numbers, Full Labels, or Off (Shortcut: P)"
             >
-              <MapPin className="w-3.5 h-3.5" />
+              <MapPin className="w-3 h-3" />
               <span>
-                Callouts:{' '}
                 {pinDisplayMode === 'leader'
                   ? 'Netter Lines'
                   : pinDisplayMode === 'compact'
                   ? 'Numbers'
                   : pinDisplayMode === 'labels'
                   ? 'Pins'
-                  : 'Off'}
+                  : 'Labels Off'}
               </span>
             </button>
           )}
 
-          {/* 2. Netter Plate Lighting Toggle */}
           {!zenMode && (
             <button
               type="button"
               onClick={() => setNetterPlateMode((prev) => !prev)}
               data-testid="toggle-plate-btn"
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
                 netterPlateMode
                   ? 'bg-amber-950/80 text-amber-300 border border-amber-500/40 hover:bg-amber-900/50'
                   : 'bg-slate-900 text-slate-400 hover:text-white'
               }`}
-              title="Toggle Netter Atlas Gouache Plate vs Dark Surgical Backdrop"
+              title="Toggle Netter Atlas Ivory Parchment Plate vs Dark Surgical Backdrop"
             >
-              <span>{netterPlateMode ? 'Plate: Netter' : 'Plate: Dark'}</span>
+              <span>{netterPlateMode ? 'Netter Plate' : 'Dark Plate'}</span>
             </button>
           )}
 
-          {/* 3. Bottom Controls Toggle (H) */}
           {!zenMode && (
             <button
               type="button"
               onClick={() => setDockCollapsed((prev) => !prev)}
               data-testid="toggle-dock-btn"
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
                 dockCollapsed
                   ? 'bg-slate-900 text-slate-400 hover:text-white'
                   : 'bg-slate-800 text-slate-200 hover:text-white'
@@ -806,31 +839,29 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
               title="Show or hide bottom timeline controls (Shortcut: H)"
             >
               {dockCollapsed ? (
-                <ChevronUp className="w-3.5 h-3.5 text-teal-400" />
+                <ChevronUp className="w-3 h-3 text-teal-400" />
               ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-teal-400" />
+                <ChevronDown className="w-3 h-3 text-teal-400" />
               )}
-              <span>{dockCollapsed ? 'Show Timeline' : 'Hide Timeline'}</span>
+              <span>Timeline</span>
             </button>
           )}
 
-          {/* 4. Zen / Clean 3D View Toggle (Z) */}
           <button
             type="button"
             onClick={() => setZenMode((prev) => !prev)}
             data-testid="toggle-zen-btn"
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
               zenMode
                 ? 'bg-teal-600 text-white shadow-sm'
                 : 'bg-slate-900 text-slate-300 hover:text-white'
             }`}
             title="Toggle Clean 3D View — hides all floating overlays (Shortcut: Z)"
           >
-            {zenMode ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            <span>{zenMode ? 'Exit Clean 3D (Z)' : 'Clean 3D (Z)'}</span>
+            {zenMode ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+            <span>{zenMode ? 'Exit Clean 3D' : 'Clean 3D'}</span>
           </button>
 
-          {/* 5. Right Clinical Inspector Panel Collapse/Expand Toggle (I) */}
           {onToggleInspector && (
             <button
               type="button"
@@ -862,7 +893,6 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       {/* OPTION 1: NETTER ATLAS MARGIN LEADER-LINE CALLOUTS ('leader' mode — zero occlusion over the 3D organ!) */}
       {!zenMode && scaleMode === 'macro' && pinDisplayMode === 'leader' && (
         <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
-          {/* SVG Leader Lines from 3D tissue locus out to left/right margin callout plates */}
           <svg
             className="pointer-events-none absolute inset-0 w-full h-full"
             aria-hidden="true"
@@ -871,35 +901,37 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
               if (!item.visible) return null;
               const isSelected = item.hs.id === selectedHotspotId;
               const isHovered = item.hs.id === hoveredPinId;
-              const strokeColor =
-                isSelected || isHovered
-                  ? '#2dd4bf'
-                  : item.hs.severity === 'critical'
-                  ? '#f87171'
-                  : '#fbbf24';
+              const strokeColor = netterPlateMode
+                ? isSelected || isHovered
+                  ? '#991B1B'
+                  : '#292524'
+                : isSelected || isHovered
+                ? '#2dd4bf'
+                : item.hs.severity === 'critical'
+                ? '#f87171'
+                : '#fbbf24';
               const pathD = `M ${item.targetX} ${item.targetY} L ${item.elbowX} ${item.anchorEndY} L ${item.anchorEndX} ${item.anchorEndY}`;
               return (
                 <g key={`leader-svg-${item.hs.id}`}>
                   <path
                     d={pathD}
                     fill="none"
-                    stroke="#000000"
-                    strokeWidth={isSelected ? 3.5 : 2.5}
-                    strokeOpacity={0.65}
+                    stroke={netterPlateMode ? '#F2ECE1' : '#000000'}
+                    strokeWidth={isSelected ? 4 : 3}
+                    strokeOpacity={0.85}
                   />
                   <path
                     d={pathD}
                     fill="none"
                     stroke={strokeColor}
-                    strokeWidth={isSelected || isHovered ? 2 : 1.35}
-                    strokeDasharray={isSelected ? 'none' : '3 2'}
+                    strokeWidth={isSelected || isHovered ? 2.1 : 1.4}
                   />
                   <circle
                     cx={item.targetX}
                     cy={item.targetY}
-                    r={isSelected ? 5 : 3.8}
+                    r={isSelected ? 4.8 : 3.6}
                     fill={strokeColor}
-                    stroke="#090D16"
+                    stroke={netterPlateMode ? '#FAF6EE' : '#090D16'}
                     strokeWidth={1.5}
                   />
                 </g>
@@ -924,8 +956,12 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                   top: `${item.cardY}px`,
                   width: `${item.cardWidth}px`,
                 }}
-                className={`pointer-events-auto absolute text-left rounded-xl px-2.5 py-1.5 transition-all duration-150 shadow-lg border cursor-pointer ${
-                  isSelected
+                className={`pointer-events-auto absolute text-left rounded-lg px-2.5 py-1.5 transition-all duration-150 shadow-md border cursor-pointer ${
+                  netterPlateMode
+                    ? isSelected
+                      ? 'bg-[#FAF6EE] text-[#1C1917] border-[#991B1B] ring-2 ring-[#991B1B]/30 z-20'
+                      : 'bg-[#FAF6EE]/92 text-[#292524] border-[#C8B9A6] hover:border-[#991B1B] z-10'
+                    : isSelected
                     ? 'bg-teal-950/95 text-white border-teal-400 ring-1 ring-teal-400/50 z-20'
                     : 'bg-[#0B111E]/90 text-slate-200 border-slate-800/90 hover:border-teal-400/70 hover:text-white'
                 }`}
@@ -935,7 +971,11 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span
                     className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-mono font-bold shrink-0 ${
-                      isSelected
+                      netterPlateMode
+                        ? isSelected
+                          ? 'bg-[#991B1B] text-white'
+                          : 'bg-[#E7DEC8] text-[#78350F]'
+                        : isSelected
                         ? 'bg-teal-400 text-slate-950'
                         : hs.severity === 'critical'
                         ? 'bg-red-500/25 text-red-300'
@@ -944,9 +984,19 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                   >
                     {hs.indexNumber}
                   </span>
-                  <span className="text-xs font-semibold truncate">{hs.label}</span>
+                  <span
+                    className={`text-xs font-bold truncate ${
+                      netterPlateMode ? 'font-serif text-[#1C1917]' : ''
+                    }`}
+                  >
+                    {hs.label}
+                  </span>
                 </div>
-                <div className="text-[10px] text-slate-400 font-mono truncate pl-5 mt-0.5">
+                <div
+                  className={`text-[10px] italic truncate pl-5 mt-0.5 ${
+                    netterPlateMode ? 'text-[#57534E] font-serif' : 'text-slate-400 font-mono'
+                  }`}
+                >
                   {hs.anatomicalStructure}
                 </div>
               </button>
