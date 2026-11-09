@@ -51,7 +51,7 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isDark, setIsDark] = useState<boolean>(true);
-  const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(true);
+  const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(false);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -140,9 +140,9 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen lg:h-screen w-full flex flex-col bg-[#F8FAFC] dark:bg-[#070B12] text-slate-900 dark:text-slate-100 overflow-x-hidden lg:overflow-hidden">
-      {/* Strict 3-Zone Top Navigation Bar Contract */}
-      <header className="flex items-center justify-between gap-8 px-6 py-3 bg-white dark:bg-[#0B0F19] border-b border-slate-200 dark:border-slate-800 shrink-0 z-30">
+    <div className="min-h-screen lg:h-screen w-full flex flex-col bg-[#1A110F] text-slate-100 overflow-x-hidden lg:overflow-hidden">
+      {/* Sleek Documentary Studio Top Navigation Bar */}
+      <header className="flex items-center justify-between gap-6 px-5 py-2.5 bg-[#18100E]/95 border-b border-white/10 shrink-0 z-30">
         {/* Zone 1: Single text element wordmark */}
         <a
           href="#top"
@@ -150,7 +150,7 @@ export default function App() {
             e.preventDefault();
             handleSelectCase(CLINICAL_CASES[0]);
           }}
-          className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 font-display"
+          className="text-base font-extrabold tracking-wider uppercase text-amber-100 whitespace-nowrap shrink-0 font-display"
         >
           Patho3D Atlas
         </a>
@@ -158,7 +158,7 @@ export default function App() {
         {/* Zone 2: 5 concise single-line text navigation links */}
         <nav
           aria-label="Organ System Navigation"
-          className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600 dark:text-slate-300"
+          className="hidden md:flex items-center gap-6 text-xs font-semibold tracking-wider uppercase text-white/70"
         >
           {navSystems.map((item) => {
             const isActive = activeCase.organSystem === item.system;
@@ -170,10 +170,8 @@ export default function App() {
                   e.preventDefault();
                   handleSelectSystemNav(item.system);
                 }}
-                className={`whitespace-nowrap shrink-0 transition-colors hover:text-teal-600 dark:hover:text-teal-400 hover:underline underline-offset-4 ${
-                  isActive
-                    ? 'text-teal-600 dark:text-teal-400 font-semibold underline'
-                    : ''
+                className={`whitespace-nowrap shrink-0 transition-colors hover:text-amber-300 hover:underline underline-offset-4 ${
+                  isActive ? 'text-amber-300 font-bold underline' : ''
                 }`}
               >
                 {item.label}
@@ -187,7 +185,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsAskModalOpen(true)}
-            className="px-4 py-2 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-500 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="px-3.5 py-1.5 text-xs font-bold text-slate-950 bg-amber-300 hover:bg-amber-200 rounded-full transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             Ask Pathology Question
           </button>
@@ -195,7 +193,7 @@ export default function App() {
       </header>
 
       {/* Mobile Organ System Quick Switcher (Visible below md breakpoint) */}
-      <div className="flex md:hidden items-center gap-2 overflow-x-auto px-4 py-2 bg-white dark:bg-[#0B0F19] border-b border-slate-200 dark:border-slate-800 shrink-0">
+      <div className="flex md:hidden items-center gap-2 overflow-x-auto px-4 py-2 bg-[#18100E] border-b border-white/10 shrink-0">
         {navSystems.map((item) => {
           const isActive = activeCase.organSystem === item.system;
           return (
@@ -203,10 +201,8 @@ export default function App() {
               key={item.system}
               type="button"
               onClick={() => handleSelectSystemNav(item.system)}
-              className={`px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap shrink-0 ${
-                isActive
-                  ? 'bg-teal-600 text-white'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+              className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap shrink-0 ${
+                isActive ? 'bg-amber-300 text-slate-950' : 'bg-white/10 text-white/80'
               }`}
             >
               {item.label}
@@ -215,8 +211,8 @@ export default function App() {
         })}
       </div>
 
-      {/* Main Clinical Workstation Split Area */}
-      <main className="flex-1 flex flex-col lg:flex-row min-h-0 w-full overflow-hidden">
+      {/* Main Full-Bleed Documentary 3D Stage + Optional Slide-Over Clinical Drawer */}
+      <main className="relative flex-1 flex flex-col lg:flex-row min-h-0 w-full overflow-hidden">
         <SurgicalViewport3D
           archetype={activeCase.archetype3D}
           caseTitle={activeCase.title}
@@ -237,20 +233,22 @@ export default function App() {
         />
 
         {isInspectorOpen && (
-          <ClinicalInspectorPanel
-            activeCase={activeCase}
-            allCases={allCases}
-            onSelectCase={handleSelectCase}
-            activeStageIndex={activeStageIndex}
-            onSelectStage={(idx) => setScrubberValue(idx)}
-            interpolatedBiomarkers={interpolatedBiomarkers}
-            selectedHotspotId={selectedHotspotId}
-            onSelectHotspot={setSelectedHotspotId}
-            onOpenAskModal={() => setIsAskModalOpen(true)}
-            isDark={isDark}
-            onToggleTheme={() => setIsDark((d) => !d)}
-            onCollapsePanel={() => setIsInspectorOpen(false)}
-          />
+          <div className="lg:absolute lg:top-0 lg:right-0 lg:bottom-0 lg:z-30 flex shadow-2xl">
+            <ClinicalInspectorPanel
+              activeCase={activeCase}
+              allCases={allCases}
+              onSelectCase={handleSelectCase}
+              activeStageIndex={activeStageIndex}
+              onSelectStage={(idx) => setScrubberValue(idx)}
+              interpolatedBiomarkers={interpolatedBiomarkers}
+              selectedHotspotId={selectedHotspotId}
+              onSelectHotspot={setSelectedHotspotId}
+              onOpenAskModal={() => setIsAskModalOpen(true)}
+              isDark={isDark}
+              onToggleTheme={() => setIsDark((d) => !d)}
+              onCollapsePanel={() => setIsInspectorOpen(false)}
+            />
+          </div>
         )}
       </main>
 

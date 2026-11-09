@@ -2,15 +2,24 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Archetype3D, StageSceneParams } from '../types/pathology';
 
+export type AnatomicalLayerFilter = 'all' | 'bone' | 'muscle' | 'nerve' | 'vessel';
+
 export interface BuiltAnatomyRig {
   rootGroup: THREE.Group;
   macroGroup: THREE.Group;
   microGroup: THREE.Group;
   proceduralBaseGroup: THREE.Group;
   nihGlbGroup: THREE.Group;
+  nerveGroup: THREE.Group;
+  vesselBranchGroup: THREE.Group;
+  bokehPoints: THREE.Points;
   parenchymaMaterials: THREE.MeshPhysicalMaterial[];
   arterialMaterials: THREE.MeshPhysicalMaterial[];
   venousMaterials: THREE.MeshPhysicalMaterial[];
+  nerveCoreMaterials: THREE.MeshStandardMaterial[];
+  nerveHaloMaterials: THREE.MeshBasicMaterial[];
+  boneStructuralMeshes: THREE.Object3D[];
+  muscleParenchymaMeshes: THREE.Object3D[];
   lesionMeshes: THREE.Mesh[];
   hypertrophyMeshes: THREE.Object3D[];
   stenosisMeshes: THREE.Object3D[];
@@ -93,8 +102,12 @@ export function buildAnatomyRig(
   const microGroup = new THREE.Group();
   const proceduralBaseGroup = new THREE.Group();
   const nihGlbGroup = new THREE.Group();
+  const nerveGroup = new THREE.Group();
+  const vesselBranchGroup = new THREE.Group();
   macroGroup.add(proceduralBaseGroup);
   macroGroup.add(nihGlbGroup);
+  macroGroup.add(vesselBranchGroup);
+  macroGroup.add(nerveGroup);
   rootGroup.add(macroGroup);
   rootGroup.add(microGroup);
   microGroup.visible = false;
@@ -119,6 +132,10 @@ export function buildAnatomyRig(
   const parenchymaMaterials: THREE.MeshPhysicalMaterial[] = [];
   const arterialMaterials: THREE.MeshPhysicalMaterial[] = [];
   const venousMaterials: THREE.MeshPhysicalMaterial[] = [];
+  const nerveCoreMaterials: THREE.MeshStandardMaterial[] = [];
+  const nerveHaloMaterials: THREE.MeshBasicMaterial[] = [];
+  const boneStructuralMeshes: THREE.Object3D[] = [];
+  const muscleParenchymaMeshes: THREE.Object3D[] = [];
   const lesionMeshes: THREE.Mesh[] = [];
   const hypertrophyMeshes: THREE.Object3D[] = [];
   const stenosisMeshes: THREE.Object3D[] = [];
@@ -839,11 +856,172 @@ export function buildAnatomyRig(
   finalizeTrackedScales();
 
   // -------------------------------------------------------------------------
-  // CUSTOM GLSL NETTER GOUACHE + PEN-AND-INK CROSS-HATCHING SHADER HOOK
+  // CINEMATIC DEPTH-OF-FIELD BOKEH PARTICLES & BIOLUMINESCENT NERVE ARBORIZATION
+  // -------------------------------------------------------------------------
+  const bokehCanvas = document.createElement('canvas');
+  bokehCanvas.width = 64;
+  bokehCanvas.height = 64;
+  const bCtx = bokehCanvas.getContext('2d');
+  if (bCtx) {
+    const grad = bCtx.createRadialGradient(32, 32, 2, 32, 32, 30);
+    grad.addColorStop(0, 'rgba(255, 248, 235, 0.95)');
+    grad.addColorStop(0.45, 'rgba(253, 224, 171, 0.55)');
+    grad.addColorStop(0.8, 'rgba(245, 180, 145, 0.15)');
+    grad.addColorStop(1, 'rgba(245, 180, 145, 0)');
+    bCtx.fillStyle = grad;
+    bCtx.fillRect(0, 0, 64, 64);
+  }
+  const bokehTex = new THREE.CanvasTexture(bokehCanvas);
+  textures.push(bokehTex);
+
+  const bokehCount = isSoftwareGl ? 56 : 90;
+  const bokehPositions = new Float32Array(bokehCount * 3);
+  for (let i = 0; i < bokehCount; i++) {
+    const angle = i * 2.39996;
+    const dist = 1.45 + ((i * 37) % 100) * 0.024;
+    bokehPositions[i * 3] = Math.cos(angle) * dist * 1.35;
+    bokehPositions[i * 3 + 1] = (((i * 53) % 100) / 50 - 1) * 2.2;
+    bokehPositions[i * 3 + 2] = -0.85 - ((i * 29) % 100) * 0.025;
+  }
+  const bokehGeo = trackGeo(new THREE.BufferGeometry());
+  bokehGeo.setAttribute('position', new THREE.BufferAttribute(bokehPositions, 3));
+  const bokehMat = trackMat(
+    new THREE.PointsMaterial({
+      map: bokehTex,
+      size: 0.24,
+      transparent: true,
+      opacity: 0.52,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  const bokehPoints = new THREE.Points(bokehGeo, bokehMat);
+  rootGroup.add(bokehPoints);
+
+  // Build 3D Delicate Organic Bioluminescent Golden Nerve Arborization + Deep Vascular Arches
+  // Sculpted to hug the organ contour cleanly without sticking out into empty space
+  const addNerveBranch = (pts: THREE.Vector3[], radius: number, phaseOffset: number) => {
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5);
+    const coreGeo = trackGeo(new THREE.TubeGeometry(curve, 36, radius, 8, false));
+    const coreMat = trackMat(
+      new THREE.MeshStandardMaterial({
+        color: 0xfde047,
+        emissive: new THREE.Color(0xeab308),
+        emissiveIntensity: 0.75,
+        roughness: 0.28,
+        metalness: 0.05,
+      })
+    );
+    coreMat.userData.phaseOffset = phaseOffset;
+    nerveCoreMaterials.push(coreMat);
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    nerveGroup.add(coreMesh);
+
+    // Subtle golden bioluminescent aura tube (matches 00:15-00:17 of reference video)
+    const haloGeo = trackGeo(new THREE.TubeGeometry(curve, 28, radius * 2.1, 8, false));
+    const haloMat = trackMat(
+      new THREE.MeshBasicMaterial({
+        color: 0xfef08a,
+        transparent: true,
+        opacity: 0.14,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    haloMat.userData.phaseOffset = phaseOffset;
+    nerveHaloMaterials.push(haloMat);
+    const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+    nerveGroup.add(haloMesh);
+  };
+
+  // Delicate, sinuous anatomical nerve trunks hugging the organ surface (V2/V3/VII/IX/X pattern)
+  const mainTrunks: THREE.Vector3[][] = [
+    // Trunk 1: Anterior Interventricular / Autonomic Plexus (V3 / LAD Plexus)
+    [
+      new THREE.Vector3(-0.08, 0.62, 0.52),
+      new THREE.Vector3(-0.04, 0.34, 0.64),
+      new THREE.Vector3(0.03, 0.05, 0.68),
+      new THREE.Vector3(0.11, -0.24, 0.63),
+      new THREE.Vector3(0.18, -0.52, 0.50),
+      new THREE.Vector3(0.22, -0.74, 0.34),
+    ],
+    // Trunk 2: Lateral Vagal / Glossopharyngeal Plexus (IX / X)
+    [
+      new THREE.Vector3(0.26, 0.58, 0.42),
+      new THREE.Vector3(0.38, 0.28, 0.54),
+      new THREE.Vector3(0.42, -0.02, 0.58),
+      new THREE.Vector3(0.36, -0.32, 0.52),
+      new THREE.Vector3(0.25, -0.58, 0.40),
+    ],
+    // Trunk 3: Contralateral Sympathetic / Recurrent Plexus (VII / 6th)
+    [
+      new THREE.Vector3(-0.32, 0.52, 0.40),
+      new THREE.Vector3(-0.44, 0.22, 0.52),
+      new THREE.Vector3(-0.42, -0.08, 0.55),
+      new THREE.Vector3(-0.32, -0.38, 0.48),
+      new THREE.Vector3(-0.18, -0.62, 0.36),
+    ],
+  ];
+
+  mainTrunks.forEach((trunkPts, tIdx) => {
+    addNerveBranch(trunkPts, 0.0055, tIdx * 1.1);
+    const trunkCurve = new THREE.CatmullRomCurve3(trunkPts);
+    // Sprout curved secondary nerve arborizations & fine terminal filaments hugging the organ contour
+    for (let b = 1; b <= 4; b++) {
+      const u = b * 0.2;
+      const origin = trunkCurve.getPointAt(u);
+      const dirSign = b % 2 === 0 ? 1 : -1;
+      const mid1 = origin.clone().add(new THREE.Vector3(dirSign * 0.09, -0.05, 0.03));
+      const mid2 = mid1.clone().add(new THREE.Vector3(dirSign * 0.10, -0.08, -0.02));
+      const tip = mid2.clone().add(new THREE.Vector3(dirSign * 0.08, -0.07, -0.05));
+      addNerveBranch([origin, mid1, mid2, tip], 0.0032, tIdx + b * 0.6);
+
+      // Fine terminal nerve filament
+      const twig1 = mid1.clone().add(new THREE.Vector3(dirSign * 0.06, 0.05, 0.02));
+      const twig2 = twig1.clone().add(new THREE.Vector3(dirSign * 0.07, 0.04, -0.02));
+      addNerveBranch([mid1, twig1, twig2], 0.0018, tIdx + b * 0.9);
+    }
+  });
+
+  // Deep Color-Coded Vascular Branches hugging the anatomical sulci
+  const vesselCurves = [
+    {
+      pts: [
+        new THREE.Vector3(-0.05, 0.64, 0.48),
+        new THREE.Vector3(0.01, 0.28, 0.62),
+        new THREE.Vector3(0.09, -0.12, 0.64),
+        new THREE.Vector3(0.17, -0.48, 0.49),
+      ],
+      mat: makeArterialMat(),
+      r: 0.0095,
+    },
+    {
+      pts: [
+        new THREE.Vector3(-0.28, 0.54, 0.38),
+        new THREE.Vector3(-0.38, 0.16, 0.50),
+        new THREE.Vector3(-0.34, -0.24, 0.52),
+        new THREE.Vector3(-0.22, -0.52, 0.40),
+      ],
+      mat: makeVenousMat(),
+      r: 0.0085,
+    },
+  ];
+  vesselCurves.forEach((vc) => {
+    const c = new THREE.CatmullRomCurve3(vc.pts);
+    const g = trackGeo(new THREE.TubeGeometry(c, 28, vc.r, 10, false));
+    vesselBranchGroup.add(new THREE.Mesh(g, vc.mat));
+  });
+
+  // Shift nerve and vessel groups slightly down to match the centered NIH organ
+  nerveGroup.position.y = -0.14;
+  vesselBranchGroup.position.y = -0.14;
+
+  // -------------------------------------------------------------------------
+  // CUSTOM GLSL SUBSURFACE MUSCLE-FIBER STRIATION SHADER
   // -------------------------------------------------------------------------
   const attachNetterPenAndGouacheShader = (
     mat: THREE.MeshPhysicalMaterial,
-    fiberFreq = 48.0,
+    fiberFreq = 64.0,
     isSulcusOrFibrous = false
   ) => {
     mat.onBeforeCompile = (shader) => {
@@ -870,46 +1048,42 @@ export function buildAnatomyRig(
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <dithering_fragment>',
         `#include <dithering_fragment>
-         // 1. Directional Netter Gouache Muscle Fiber / Lobular Striations
+         // 1. High-Contrast Parallel Anatomical Muscle-Fiber & Fascia Striations (matches 00:09-00:18 of reference video)
          vec3 p = vNetterObjPos * ${fiberFreq.toFixed(1)};
-         float fiberWave = sin(p.x * 1.3 + p.y * 0.9 + sin(p.z * 1.4) * 1.8);
-         float secondaryWave = cos(p.y * 2.1 - p.z * 1.2);
-         float gouacheStroke = smoothstep(-0.6, 0.7, fiberWave * 0.65 + secondaryWave * 0.35);
+         float fiberWave = sin(p.x * 1.85 + p.y * 1.35 + sin(p.z * 1.45) * 1.6);
+         float fineFascia = cos(p.y * 3.8 - p.z * 2.1);
+         float striation = smoothstep(-0.55, 0.65, fiberWave * 0.62 + fineFascia * 0.38);
 
-         // Warm gouache pigment variation (carmine shadow <-> warm cadmium/ochre highlight)
-         vec3 warmHighlight = ${
-           isSulcusOrFibrous ? 'vec3(0.98, 0.91, 0.76)' : 'vec3(0.95, 0.58, 0.45)'
+         vec3 fasciaHighlight = ${
+           isSulcusOrFibrous ? 'vec3(0.95, 0.88, 0.72)' : 'vec3(0.92, 0.56, 0.48)'
          };
-         vec3 deepShadow = vec3(0.18, 0.04, 0.05);
-         gl_FragColor.rgb = mix(gl_FragColor.rgb * 0.86, mix(gl_FragColor.rgb, warmHighlight, 0.28), gouacheStroke);
+         vec3 deepFascicle = ${
+           isSulcusOrFibrous ? 'vec3(0.46, 0.35, 0.24)' : 'vec3(0.24, 0.05, 0.05)'
+         };
+         gl_FragColor.rgb = mix(
+           mix(gl_FragColor.rgb, deepFascicle, 0.42),
+           mix(gl_FragColor.rgb, fasciaHighlight, 0.32),
+           striation
+         );
 
-         // 2. Pen-and-Ink Silhouette Rim & Cross-Hatching in Shadowed Contours
+         // 2. Subtle Warm Biological Subsurface Rim Glow + Crisp Anatomical Crease Darkening
          vec3 viewDir = normalize(vViewPosition);
          float ndotv = abs(dot(normalize(vNormal), viewDir));
-         float inkRim = smoothstep(0.36, 0.10, ndotv);
-
-         // Fine medical pen cross-hatching in grazing/shadow zones
-         float hatch1 = step(0.65, sin((p.x + p.y) * 3.4));
-         float hatch2 = step(0.72, sin((p.x - p.z) * 3.4));
-         float shadowZone = smoothstep(0.55, 0.22, ndotv);
-         float crossHatch = clamp((hatch1 * 0.55 + hatch2 * 0.45) * shadowZone, 0.0, 1.0);
-
-         vec3 sepiaInk = vec3(0.10, 0.03, 0.04);
-         gl_FragColor.rgb = mix(gl_FragColor.rgb, deepShadow, crossHatch * 0.48);
-         gl_FragColor.rgb = mix(gl_FragColor.rgb, sepiaInk, inkRim * 0.82);`
+         float sssRim = smoothstep(0.38, 0.02, ndotv);
+         vec3 warmSubsurface = vec3(0.96, 0.68, 0.56);
+         gl_FragColor.rgb = mix(gl_FragColor.rgb, warmSubsurface, sssRim * 0.22);`
       );
     };
     mat.needsUpdate = true;
   };
 
   // -------------------------------------------------------------------------
-  // OPTION 2 + OPTION 1: NIH HuBMAP Reference Organ .GLB Loader & Netter Gouache Shader
+  // NIH HuBMAP Reference Organ .GLB Loader & Subsurface Layer Classification
   // -------------------------------------------------------------------------
   const applyNetterShaderToNihScene = (rawScene: THREE.Group) => {
     if (isDisposed) return;
     const glbClone = rawScene.clone(true);
 
-    // Normalize bounding box to fit [-1.18, 1.18] surgical stage and center at (0, 0, 0)
     glbClone.updateMatrixWorld(true);
     const bbox = new THREE.Box3().setFromObject(glbClone);
     const size = new THREE.Vector3();
@@ -917,52 +1091,50 @@ export function buildAnatomyRig(
     bbox.getSize(size);
     bbox.getCenter(center);
     const maxDim = Math.max(size.x, size.y, size.z, 0.001);
-    const targetSpan = archetype === 'gi_mucosa_ulcer' ? 2.45 : 2.32;
+    const targetSpan = archetype === 'gi_mucosa_ulcer' ? 2.25 : 2.12;
     const normScale = targetSpan / maxDim;
 
     const wrapper = new THREE.Group();
-    glbClone.position.set(-center.x * normScale, -center.y * normScale, -center.z * normScale);
+    glbClone.position.set(
+      -center.x * normScale,
+      -center.y * normScale - 0.14,
+      -center.z * normScale
+    );
     glbClone.scale.setScalar(normScale);
     wrapper.add(glbClone);
 
-    // Crisp Netter pen-and-ink anatomical contour line material
+    // Crisp anatomical sulcus contour line material
     const inkContourMat = trackMat(
       new THREE.LineBasicMaterial({
-        color: 0x1a0608,
+        color: 0x2b0d0c,
         transparent: true,
-        opacity: 0.46,
+        opacity: 0.32,
       })
     );
 
-    // Translucent outer capsule / anterior chamber shell so internal valves, papillary muscles,
-    // renal pyramids, Couinaud segments, and bronchial cartilage rings are visibly exposed!
+    // Ghosted Translucent Soft Peach-Flesh Subsurface Outer Envelope (opacity 0.13 so deep muscles & valves are vivid!)
     const outerCapsuleMat = trackMat(
       new THREE.MeshPhysicalMaterial({
-        color:
-          archetype === 'liver_portal'
-            ? 0x8f2d26
-            : archetype === 'kidney_nephron'
-            ? 0x9f2a2a
-            : archetype === 'brain_vascular'
-            ? 0xe8998d
-            : 0xb82828,
-        roughness: 0.42,
-        metalness: 0.02,
-        clearcoat: 0.25,
+        color: 0xf2bba6,
+        emissive: new THREE.Color(0x4a1d15),
+        emissiveIntensity: 0.12,
+        roughness: 0.32,
+        metalness: 0.0,
+        clearcoat: 0.35,
         transparent: true,
-        opacity: 0.28,
+        opacity: 0.13,
         depthWrite: false,
-        bumpMap: tissueBumpMap,
-        bumpScale: 0.025,
         side: THREE.DoubleSide,
       })
     );
-    outerCapsuleMat.userData.baseColorHex = outerCapsuleMat.color.getHex();
+    outerCapsuleMat.userData.baseColorHex = 0xf2bba6;
+    outerCapsuleMat.userData.isOuterEnvelope = true;
     parenchymaMaterials.push(outerCapsuleMat);
 
-    // Warm Netter fibrous/valvular/ligamentous/cartilage ivory-ochre material
-    const fibrousValveMat = makeParenchymaMat(0xf3e5ab, 0.48, 0.25);
-    attachNetterPenAndGouacheShader(fibrousValveMat, 52.0, true);
+    // Sculpted Bone / Cartilage / Valve Warm Ivory Material (matches skull/mandible/hyoid in video)
+    const fibrousValveMat = makeParenchymaMat(0xe5cfa8, 0.38, 0.25);
+    fibrousValveMat.userData.isBoneOrValve = true;
+    attachNetterPenAndGouacheShader(fibrousValveMat, 54.0, true);
 
     let meshIndex = 0;
     const allMeshes: THREE.Mesh[] = [];
@@ -979,8 +1151,6 @@ export function buildAnatomyRig(
       }
       const rawName = `${mesh.name || ''} ${mesh.parent?.name || ''}`.toLowerCase();
 
-      // Match actual NIH HuBMAP outer shell nodes so internal valves, papillary muscles,
-      // renal pyramids, and hepatic segments are visible inside!
       const isOuterShell =
         allMeshes.length > 1 &&
         (rawName.includes('heart_right_ventricle') ||
@@ -1015,35 +1185,37 @@ export function buildAnatomyRig(
         cutawayShellMeshes.push(mesh);
       } else if (isFibrousOrValve) {
         mesh.material = fibrousValveMat;
+        boneStructuralMeshes.push(mesh);
       } else if (isPapillaryOrColumnOrBronchus) {
-        const subMat = makeParenchymaMat(0xd9534f, 0.45, 0.35);
-        attachNetterPenAndGouacheShader(subMat, 64.0, false);
+        const subMat = makeParenchymaMat(0xb83b34, 0.40, 0.35);
+        attachNetterPenAndGouacheShader(subMat, 76.0, false);
         mesh.material = subMat;
         mesh.userData.baseScale = mesh.scale.clone();
         hypertrophyMeshes.push(mesh);
+        muscleParenchymaMeshes.push(mesh);
       } else {
-        // Authentic Netter Atlas Gouache Palette per Organ System
+        // Rich, Deep Striated Anatomical Muscle & Parenchyma Palette (matches 00:09-00:18 of reference video)
         const palette =
           archetype === 'liver_portal'
-            ? [0x8b261d, 0x7a1f18, 0x9c3328, 0x6e1a14, 0xa83b2f]
+            ? [0x942b24, 0x80221c, 0xa6362e, 0x701c17, 0xb24138]
             : archetype === 'kidney_nephron'
-            ? [0x8c1d24, 0xa6262e, 0x73141b, 0xb8333a]
+            ? [0x9e2d2b, 0xb03a37, 0x87211f, 0xbd4642]
             : archetype === 'gi_mucosa_ulcer'
-            ? [0xd95f5b, 0xc94a46, 0xe37672, 0xb83b37]
+            ? [0xc44b47, 0xb03c38, 0xd15c58, 0x9c302c]
             : archetype === 'lung_alveoli'
-            ? [0xd96b70, 0xc75459, 0xe38186]
+            ? [0xc45458, 0xb04145, 0xd1666a]
             : archetype === 'brain_vascular'
-            ? [0xe6a89a, 0xd99282, 0xedb8ac, 0xc97d6d]
-            : [0xa61c1c, 0x8c1616, 0xb82828, 0x781212];
+            ? [0xd98f80, 0xc77b6b, 0xe39f91, 0xb56959]
+            : [0xa32926, 0x8c1f1c, 0xb53632, 0x7a1816];
         const hex = palette[meshIndex % palette.length];
-        const subMat = makeParenchymaMat(hex, 0.46, 0.32);
-        attachNetterPenAndGouacheShader(subMat, 46.0 + (meshIndex % 5) * 6.0, false);
+        const subMat = makeParenchymaMat(hex, 0.42, 0.32);
+        attachNetterPenAndGouacheShader(subMat, 64.0 + (meshIndex % 5) * 7.0, false);
         mesh.material = subMat;
         mesh.userData.baseScale = mesh.scale.clone();
         hypertrophyMeshes.push(mesh);
+        muscleParenchymaMeshes.push(mesh);
       }
 
-      // Add Netter pen-and-ink crease contour lines on internal structures
       const posAttr = mesh.geometry.attributes.position;
       if (posAttr && posAttr.count < 26000) {
         try {
@@ -1057,7 +1229,6 @@ export function buildAnatomyRig(
     });
 
     nihGlbGroup.add(wrapper);
-    // Hide ALL procedural primitives so ONLY the real sculpted NIH 3D organ is shown!
     proceduralBaseGroup.visible = false;
     onNihGlbLoaded?.(allMeshes.length);
   };
@@ -1097,9 +1268,16 @@ export function buildAnatomyRig(
     microGroup,
     proceduralBaseGroup,
     nihGlbGroup,
+    nerveGroup,
+    vesselBranchGroup,
+    bokehPoints,
     parenchymaMaterials,
     arterialMaterials,
     venousMaterials,
+    nerveCoreMaterials,
+    nerveHaloMaterials,
+    boneStructuralMeshes,
+    muscleParenchymaMeshes,
     lesionMeshes,
     hypertrophyMeshes,
     stenosisMeshes,
@@ -1120,38 +1298,70 @@ export function updateAnatomyRig(
   params: StageSceneParams,
   elapsedTime: number,
   scaleMode: 'macro' | 'micro',
-  cutawayEnabled: boolean
+  cutawayEnabled: boolean,
+  activeLayerFilter: AnatomicalLayerFilter = 'all'
 ): void {
   rig.macroGroup.visible = scaleMode === 'macro';
   rig.microGroup.visible = scaleMode === 'micro';
 
   // 1. Subtle physiological organ pulsation (cardiac/respiratory rhythm)
   const pulseFreq = 1.15 * Math.max(0.45, params.perfusionSpeed);
-  const pulseAmp = 0.016 * (1 - params.fibrosisIntensity * 0.65);
+  const pulseAmp = 0.014 * (1 - params.fibrosisIntensity * 0.65);
   const pulseScale = 1 + Math.sin(elapsedTime * pulseFreq * Math.PI * 2) * pulseAmp;
   rig.macroGroup.scale.setScalar(pulseScale);
 
-  // 2. Cutaway shell visibility
+  // 2. Floating Depth-of-Field Bokeh Gentle Drift
+  rig.bokehPoints.rotation.y = Math.sin(elapsedTime * 0.14) * 0.08;
+  rig.bokehPoints.position.y = Math.cos(elapsedTime * 0.18) * 0.06;
+
+  // 3. Interactive Documentary Layer Filtering (BONE • MUSCLE • NERVE • VESSEL)
   rig.cutawayShellMeshes.forEach((mesh) => {
-    mesh.visible = !cutawayEnabled;
+    mesh.visible = !cutawayEnabled && (activeLayerFilter === 'all' || activeLayerFilter === 'muscle');
   });
 
-  // 3. Parenchyma tissue color, fibrosis roughness & inflammatory emissive shift
+  rig.boneStructuralMeshes.forEach((obj) => {
+    obj.visible = activeLayerFilter === 'all' || activeLayerFilter === 'bone';
+  });
+
+  rig.muscleParenchymaMeshes.forEach((obj) => {
+    obj.visible = activeLayerFilter === 'all' || activeLayerFilter === 'muscle';
+  });
+
+  rig.vesselBranchGroup.visible = activeLayerFilter === 'all' || activeLayerFilter === 'vessel';
+  rig.nerveGroup.visible = activeLayerFilter === 'all' || activeLayerFilter === 'nerve';
+
+  // 4. Bioluminescent Golden Nerve Signaling Pulse (matches 00:15-00:17 of reference video)
+  const nerveBoost =
+    activeLayerFilter === 'nerve'
+      ? 1.75
+      : 0.55 + params.inflammationLevel * 0.55 + params.stenosisRatio * 0.30;
+  rig.nerveCoreMaterials.forEach((mat) => {
+    const phase = mat.userData.phaseOffset ?? 0;
+    const wave = 0.5 + 0.5 * Math.sin(elapsedTime * 3.2 - phase);
+    mat.emissiveIntensity = (0.45 + wave * 0.75) * nerveBoost;
+  });
+  rig.nerveHaloMaterials.forEach((mat) => {
+    const phase = mat.userData.phaseOffset ?? 0;
+    const wave = 0.5 + 0.5 * Math.sin(elapsedTime * 3.2 - phase);
+    mat.opacity = Math.min(0.45, (0.08 + wave * 0.16) * nerveBoost);
+  });
+
+  // 5. Parenchyma tissue color, fibrosis roughness & inflammatory emissive shift
   rig.parenchymaMaterials.forEach((mat) => {
-    _healthyColor.setHex(mat.userData.baseColorHex ?? 0xb91c1c);
+    if (mat.userData.isOuterEnvelope || mat.userData.isBoneOrValve) return;
+    _healthyColor.setHex(mat.userData.baseColorHex ?? 0xbd4b47);
     _color.copy(_healthyColor);
-    // Blend toward fibrotic collagen ochre and hypoxic slate
-    _color.lerp(_fibroticColor, params.fibrosisIntensity * 0.5);
-    _color.lerp(_hypoxicColor, params.hypoxiaTint * 0.55);
+    _color.lerp(_fibroticColor, params.fibrosisIntensity * 0.38);
+    _color.lerp(_hypoxicColor, params.hypoxiaTint * 0.42);
     mat.color.copy(_color);
 
-    mat.roughness = 0.35 + params.fibrosisIntensity * 0.45;
-    mat.bumpScale = 0.025 + params.fibrosisIntensity * 0.075;
+    mat.roughness = 0.36 + params.fibrosisIntensity * 0.35;
+    mat.bumpScale = 0.025 + params.fibrosisIntensity * 0.065;
     mat.emissive.copy(_inflamedEmissive);
-    mat.emissiveIntensity = params.inflammationLevel * 0.22;
+    mat.emissiveIntensity = params.inflammationLevel * 0.18;
   });
 
-  // 4. Focal Lesion / Plaque / Ulcer / Nodule growth relative to each mesh's baseScale
+  // 6. Focal Lesion / Plaque / Ulcer / Nodule growth relative to each mesh's baseScale
   const lesionFactor = Math.max(0.2, 0.45 + params.lesionScale * 0.75);
   rig.lesionMeshes.forEach((mesh, idx) => {
     const base: THREE.Vector3 = mesh.userData.baseScale ?? new THREE.Vector3(1, 1, 1);
@@ -1160,21 +1370,21 @@ export function updateAnatomyRig(
     mesh.visible = params.lesionScale > 0.06;
   });
 
-  // 5. Wall hypertrophy scaling relative to baseScale
-  const hyperFactor = 1 + params.wallHypertrophy * 0.12;
+  // 7. Wall hypertrophy scaling relative to baseScale
+  const hyperFactor = 1 + params.wallHypertrophy * 0.10;
   rig.hypertrophyMeshes.forEach((obj) => {
     const base: THREE.Vector3 = obj.userData.baseScale ?? new THREE.Vector3(1, 1, 1);
     obj.scale.copy(base).multiplyScalar(hyperFactor);
   });
 
-  // 6. Vessel stenosis narrowing relative to baseScale
+  // 8. Vessel stenosis narrowing relative to baseScale
   const stenosisFactor = 1 - params.stenosisRatio * 0.32;
   rig.stenosisMeshes.forEach((obj) => {
     const base: THREE.Vector3 = obj.userData.baseScale ?? new THREE.Vector3(1, 1, 1);
     obj.scale.set(base.x * stenosisFactor, base.y, base.z * stenosisFactor);
   });
 
-  // 7. Edema / Ascites halo envelope
+  // 9. Edema / Ascites halo envelope
   rig.edemaMeshes.forEach((mesh) => {
     mesh.visible = params.edemaScale > 0.12;
     const edScale = 0.92 + params.edemaScale * 0.16;
@@ -1183,17 +1393,16 @@ export function updateAnatomyRig(
     mat.opacity = params.edemaScale * 0.16;
   });
 
-  // 8. Flowing Red Blood Cells along vascular curves
+  // 10. Flowing Red Blood Cells along vascular curves (in Cellular micro view)
   const rbcCount = rig.rbcInstanced.count;
   const paths = rig.rbcPaths;
-  if (paths.length > 0) {
+  if (paths.length > 0 && scaleMode === 'micro') {
     for (let i = 0; i < rbcCount; i++) {
       const path = paths[i % paths.length];
       const u = ((i / rbcCount) + elapsedTime * 0.22 * params.perfusionSpeed) % 1;
       path.getPointAt(u, _pos);
       path.getTangentAt(u, _tangent);
 
-      // Radial jitter inside lumen
       const radialAngle = i * 2.39996;
       const radialDist = 0.035 * (1 - params.stenosisRatio * 0.55);
       _pos.x += Math.cos(radialAngle) * radialDist;
@@ -1210,36 +1419,35 @@ export function updateAnatomyRig(
     rig.rbcInstanced.computeBoundingSphere();
   }
 
-  // 9. Immune Leukocyte / Cytokine infiltrate cloud
-  const activeLeukocytes = Math.min(rig.leukocyteInstanced.count, params.cellularInfiltrateCount);
-  for (let i = 0; i < rig.leukocyteInstanced.count; i++) {
-    if (i >= activeLeukocytes) {
-      _dummy.position.set(0, -999, 0);
-      _dummy.scale.setScalar(0.001);
+  // 11. Immune Leukocyte / Cytokine infiltrate cloud (in Cellular micro view)
+  if (scaleMode === 'micro') {
+    const activeLeukocytes = Math.min(rig.leukocyteInstanced.count, params.cellularInfiltrateCount);
+    for (let i = 0; i < rig.leukocyteInstanced.count; i++) {
+      if (i >= activeLeukocytes) {
+        _dummy.position.set(0, -999, 0);
+        _dummy.scale.setScalar(0.001);
+        _dummy.updateMatrix();
+        rig.leukocyteInstanced.setMatrixAt(i, _dummy.matrix);
+        continue;
+      }
+
+      const seed = i * 1.6180339;
+      const theta = seed * Math.PI * 2 + elapsedTime * (0.25 + params.inflammationLevel * 0.45);
+      const phi = Math.acos(2 * ((seed * 0.73) % 1) - 1);
+      const radius = 0.35 + ((i % 17) / 17) * 0.65;
+
+      _dummy.position.set(
+        radius * Math.sin(phi) * Math.cos(theta),
+        radius * Math.sin(phi) * Math.sin(theta) * 0.85,
+        radius * Math.cos(phi)
+      );
+      _dummy.rotation.set(elapsedTime + i, elapsedTime * 0.7, i);
+      const cellScale = 0.75 + (i % 5) * 0.14 + params.inflammationLevel * 0.25;
+      _dummy.scale.setScalar(cellScale);
       _dummy.updateMatrix();
       rig.leukocyteInstanced.setMatrixAt(i, _dummy.matrix);
-      continue;
     }
-
-    const seed = i * 1.6180339;
-    const theta = seed * Math.PI * 2 + elapsedTime * (0.25 + params.inflammationLevel * 0.45);
-    const phi = Math.acos(2 * ((seed * 0.73) % 1) - 1);
-    const radius =
-      scaleMode === 'micro'
-        ? 0.35 + ((i % 17) / 17) * 0.65
-        : 0.65 + ((i % 23) / 23) * (0.58 + params.edemaScale * 0.25);
-
-    _dummy.position.set(
-       radius * Math.sin(phi) * Math.cos(theta),
-      radius * Math.sin(phi) * Math.sin(theta) * 0.85,
-      radius * Math.cos(phi)
-    );
-    _dummy.rotation.set(elapsedTime + i, elapsedTime * 0.7, i);
-    const cellScale = 0.75 + (i % 5) * 0.14 + params.inflammationLevel * 0.25;
-    _dummy.scale.setScalar(cellScale);
-    _dummy.updateMatrix();
-    rig.leukocyteInstanced.setMatrixAt(i, _dummy.matrix);
+    rig.leukocyteInstanced.instanceMatrix.needsUpdate = true;
+    rig.leukocyteInstanced.computeBoundingSphere();
   }
-  rig.leukocyteInstanced.instanceMatrix.needsUpdate = true;
-  rig.leukocyteInstanced.computeBoundingSphere();
 }
