@@ -233,7 +233,7 @@ export default function App() {
         />
 
         {isInspectorOpen && (
-          <div className="lg:absolute lg:top-0 lg:right-0 lg:bottom-0 lg:z-30 flex shadow-2xl">
+          <div className="shrink-0 h-full flex z-30 shadow-2xl">
             <ClinicalInspectorPanel
               activeCase={activeCase}
               allCases={allCases}

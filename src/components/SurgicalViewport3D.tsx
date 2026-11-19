@@ -14,11 +14,14 @@ import {
   BuiltAnatomyRig,
   updateAnatomyRig,
 } from '../three/anatomyBuilders';
+import { computeNonCrossingCallouts } from '../utils/calloutLayout';
+import { SliceAxis, SliceState } from '../utils/slicingAndProgression';
 import {
   ChevronDown,
   ChevronUp,
   Eye,
   EyeOff,
+  FlipHorizontal2,
   Layers,
   MapPin,
   Maximize2,
@@ -28,6 +31,7 @@ import {
   Play,
   RotateCcw,
   Scissors,
+  Slice,
   Sparkles,
 } from 'lucide-react';
 
@@ -150,10 +154,16 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<{ w: number; h: number }>({ w: 960, h: 640 });
   const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [captionExpanded, setCaptionExpanded] = useState(false);
   const [stagesExpanded, setStagesExpanded] = useState(false);
   const [pinDisplayMode, setPinDisplayMode] = useState<PinDisplayMode>('documentary');
   const [backdropMode, setBackdropMode] = useState<BackdropStyleMode>('subsurface');
   const [activeLayerFilter, setActiveLayerFilter] = useState<AnatomicalLayerFilter>('all');
+  const [sliceState, setSliceState] = useState<SliceState>({
+    axis: 'off',
+    depth: -0.12,
+    flip: false,
+  });
   const [nihSubMeshCount, setNihSubMeshCount] = useState<number>(0);
   const [zenMode, setZenMode] = useState(false);
   const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
@@ -173,6 +183,9 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
 
   const activeLayerRef = useRef<AnatomicalLayerFilter>(activeLayerFilter);
   activeLayerRef.current = activeLayerFilter;
+
+  const sliceStateRef = useRef<SliceState>(sliceState);
+  sliceStateRef.current = sliceState;
 
   const hotspotsRef = useRef<AnatomicalHotspot[]>(hotspots);
   hotspotsRef.current = hotspots;
@@ -237,6 +250,18 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
             ? 'hidden'
             : 'documentary'
         );
+      } else if (key === 'x') {
+        setSliceState((prev) => {
+          const nextAxis: SliceAxis =
+            prev.axis === 'off'
+              ? 'coronal'
+              : prev.axis === 'coronal'
+              ? 'sagittal'
+              : prev.axis === 'sagittal'
+              ? 'axial'
+              : 'off';
+          return { ...prev, axis: nextAxis };
+        });
       } else if (key === 'i' && onToggleInspector) {
         onToggleInspector();
       }
@@ -340,6 +365,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
     renderer.toneMappingExposure = 1.22;
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
+    renderer.localClippingEnabled = true;
     renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -413,11 +439,11 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       hotspotMeshes.length = 0;
 
       hotspotsRef.current.forEach((hs) => {
-        const isSelected = hs.id === selectedHotspotIdRef.current;
         const mat = new THREE.MeshBasicMaterial({
-          color: isSelected ? 0xfef08a : 0xffffff,
+          color: 0xffffff,
           transparent: true,
-          opacity: isSelected ? 0.95 : 0.75,
+          opacity: 0.0,
+          depthWrite: false,
         });
         const pinMesh = new THREE.Mesh(hotspotSphereGeo, mat);
         pinMesh.position.set(hs.position3D[0], hs.position3D[1], hs.position3D[2]);
@@ -478,7 +504,8 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
           0,
           scaleModeRef.current,
           cutawayRef.current,
-          activeLayerRef.current
+          activeLayerRef.current,
+          sliceStateRef.current
         );
         renderer.render(scene, camera);
       }
@@ -503,7 +530,8 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
           0,
           scaleModeRef.current,
           cutawayRef.current,
-          activeLayerRef.current
+          activeLayerRef.current,
+          sliceStateRef.current
         );
         renderer.render(scene, camera);
       });
@@ -517,7 +545,8 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         0,
         scaleModeRef.current,
         cutawayRef.current,
-        activeLayerRef.current
+        activeLayerRef.current,
+        sliceStateRef.current
       );
       renderer.render(scene, camera);
       computeProjectedPins();
@@ -624,25 +653,14 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         elapsed,
         scaleModeRef.current,
         cutawayRef.current,
-        activeLayerRef.current
+        activeLayerRef.current,
+        sliceStateRef.current
       );
 
       hotspotGroup.visible =
         scaleModeRef.current === 'macro' &&
         !zenModeRef.current &&
         pinDisplayModeRef.current !== 'hidden';
-
-      hotspotMeshes.forEach((pin) => {
-        const isSel = pin.userData.hotspotId === selectedHotspotIdRef.current;
-        const mat = pin.material as THREE.MeshBasicMaterial;
-        if (isSel) {
-          mat.color.setHex(0xfef08a);
-          pin.scale.setScalar(1.35);
-        } else {
-          mat.color.setHex(0xffffff);
-          pin.scale.setScalar(1.0);
-        }
-      });
 
       renderer.render(scene, camera);
 
@@ -685,39 +703,40 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
   const directNerveTags =
     DIRECT_NERVE_TAGS_BY_ARCHETYPE[archetype] ?? DIRECT_NERVE_TAGS_BY_ARCHETYPE.heart_coronary;
 
-  // Compute floating label callout coordinates (left & right of the 3D organ)
-  const floatingCallouts = hotspots.map((hs, idx) => {
-    const proj = projectedPins.find((p) => p.id === hs.id);
-    const side: 'left' | 'right' = idx % 2 === 0 ? 'left' : 'right';
-    const slotRow = Math.floor(idx / 2);
-    const cardWidth = Math.min(230, Math.max(175, Math.floor(viewportSize.w * 0.22)));
-    const centerSpread = Math.min(360, viewportSize.w * 0.34);
-    const cardX =
-      side === 'left'
-        ? Math.max(24, viewportSize.w * 0.5 - centerSpread - cardWidth * 0.65)
-        : Math.min(viewportSize.w - cardWidth - 24, viewportSize.w * 0.5 + centerSpread - cardWidth * 0.35);
-    const cardY = 185 + slotRow * 145;
-    const anchorEndX = side === 'left' ? cardX + cardWidth - 8 : cardX + 8;
-    const anchorEndY = cardY + 20;
-    const targetX = proj ? proj.x : viewportSize.w * 0.5 + (side === 'left' ? -55 : 55);
-    const targetY = proj ? proj.y : viewportSize.h * 0.48 + (slotRow === 0 ? -40 : 40);
-    const elbowX =
-      side === 'left'
-        ? Math.min(targetX - 16, anchorEndX + 22)
-        : Math.max(targetX + 16, anchorEndX - 22);
+  // Compute non-crossing floating label callout coordinates (left & right of the 3D organ)
+  const effectiveCalloutViewportH =
+    viewportSize.h - (sliceState.axis !== 'off' ? 52 : 0) - (stagesExpanded ? 64 : 0);
 
+  const calloutSlots = computeNonCrossingCallouts(
+    hotspots.map((hs, idx) => {
+      const proj = projectedPins.find((p) => p.id === hs.id);
+      const fallbackSide = idx % 2 === 0 ? -65 : 65;
+      const fallbackRow = Math.floor(idx / 2);
+      return {
+        id: hs.id,
+        targetX: proj ? proj.x : viewportSize.w * 0.5 + fallbackSide,
+        targetY: proj ? proj.y : viewportSize.h * 0.44 + (fallbackRow === 0 ? -48 : 48),
+        visible: proj ? proj.visible : true,
+      };
+    }),
+    viewportSize.w,
+    effectiveCalloutViewportH
+  );
+
+  const floatingCallouts = hotspots.map((hs, idx) => {
+    const slot = calloutSlots[idx];
     return {
       hs,
-      side,
-      cardWidth,
-      cardX,
-      cardY,
-      anchorEndX,
-      anchorEndY,
-      elbowX,
-      targetX,
-      targetY,
-      visible: proj ? proj.visible : true,
+      side: slot.side,
+      cardWidth: slot.cardWidth,
+      cardX: slot.cardX,
+      cardY: slot.cardY,
+      anchorEndX: slot.anchorEndX,
+      anchorEndY: slot.anchorEndY,
+      elbowX: slot.elbowX,
+      targetX: slot.targetX,
+      targetY: slot.targetY,
+      visible: slot.visible,
     };
   });
 
@@ -744,6 +763,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       data-stage={activeStageIndex}
       data-scale-mode={scaleMode}
       data-layer-filter={activeLayerFilter}
+      data-slice-axis={sliceState.axis}
       data-nih-meshes={nihSubMeshCount}
     >
       {/* Dedicated Empty WebGL Mount Container */}
@@ -846,54 +866,24 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
         </div>
       )}
 
-      {/* Subtle Floating Corner Controls (Top-Right: Style, Callouts, Clean 3D, Clinical Drawer) */}
+      {/* Minimal Top-Right Corner Control (Clean 3D + Clinical Drawer — never crowds centered title) */}
       <div className="pointer-events-none absolute top-4 right-4 z-20 flex items-center gap-1.5">
-        <div className="pointer-events-auto flex items-center gap-1 bg-black/35 backdrop-blur-md border border-white/15 rounded-full px-2 py-1 shadow-lg">
-          {!zenMode && scaleMode === 'macro' && (
-            <button
-              type="button"
-              onClick={cyclePinMode}
-              data-testid="toggle-pins-btn"
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium text-white/90 hover:text-[#FEF08A] transition-colors cursor-pointer"
-              title="Cycle Label Style: Documentary Floating Text, Margin Cards, Numbers, or Hidden (Shortcut: P)"
-            >
-              <MapPin className="w-3 h-3 text-amber-300" />
-              <span>
-                {pinDisplayMode === 'documentary'
-                  ? 'Labels: Documentary'
-                  : pinDisplayMode === 'leader'
-                  ? 'Labels: Plate'
-                  : pinDisplayMode === 'compact'
-                  ? 'Labels: Numbers'
-                  : 'Labels: Off'}
-              </span>
-            </button>
-          )}
-
-          {!zenMode && (
-            <button
-              type="button"
-              onClick={cycleBackdropMode}
-              data-testid="toggle-plate-btn"
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium text-amber-200 hover:text-white transition-colors cursor-pointer"
-              title="Cycle Studio Backdrop: Subsurface Studio Glow, Dark Studio, or Netter Ivory Plate"
-            >
-              <Sparkles className="w-3 h-3 text-amber-300" />
-              <span>
-                {backdropMode === 'subsurface'
-                  ? 'Subsurface Glow'
-                  : backdropMode === 'dark_studio'
-                  ? 'Dark Studio'
-                  : 'Netter Ivory'}
-              </span>
-            </button>
-          )}
-
+        <div
+          className={`pointer-events-auto flex items-center gap-1 rounded-full px-1.5 py-1 shadow-lg border ${
+            isLightPlate
+              ? 'bg-[#FAF6EE]/95 border-[#C8B9A6] text-[#1C1917]'
+              : 'bg-[#140E0C]/88 border-amber-200/15 text-white'
+          }`}
+        >
           <button
             type="button"
             onClick={() => setZenMode((prev) => !prev)}
             data-testid="toggle-zen-btn"
-            className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium text-white/85 hover:text-white transition-colors cursor-pointer"
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors cursor-pointer ${
+              isLightPlate
+                ? 'text-[#292524] hover:text-[#991B1B]'
+                : 'text-stone-200 hover:text-amber-200'
+            }`}
             title="Toggle Clean 3D View — hides all floating overlays (Shortcut: Z)"
           >
             {zenMode ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
@@ -907,8 +897,10 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
               data-testid="toggle-inspector-btn"
               className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-colors cursor-pointer ${
                 isInspectorOpen
-                  ? 'bg-teal-500 text-slate-950'
-                  : 'bg-white/15 text-white hover:bg-white/25'
+                  ? 'bg-amber-400 text-[#140E0C]'
+                  : isLightPlate
+                  ? 'bg-[#8C2D19] text-[#FAF6EE] hover:bg-[#742414]'
+                  : 'bg-amber-400/20 text-amber-100 hover:bg-amber-400/30 border border-amber-300/30'
               }`}
               title="Open or close Clinical Telemetry & Case Library Drawer (Shortcut: I)"
             >
@@ -919,7 +911,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                 </>
               ) : (
                 <>
-                  <PanelRightOpen className="w-3 h-3 text-teal-300" />
+                  <PanelRightOpen className="w-3 h-3 text-amber-300" />
                   <span>Clinical Data</span>
                 </>
               )}
@@ -929,11 +921,9 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       </div>
 
       {/* =====================================================================
-          DIRECT ON-ANATOMY NERVE & SEGMENT TAGS (V3, V2, VII, IX, X, 6th — Matches 00:04-00:17 of Video)
+          DIRECT ON-ANATOMY NERVE & SEGMENT TAGS (Shown cleanly when NERVE layer is isolated)
           ===================================================================== */}
-      {!zenMode &&
-        scaleMode === 'macro' &&
-        (pinDisplayMode === 'documentary' || activeLayerFilter === 'nerve') && (
+      {!zenMode && scaleMode === 'macro' && activeLayerFilter === 'nerve' && (
           <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden" aria-hidden="true">
             {directNerveTags.map((nt) => {
               const proj = projectedNerveTags.find((p) => p.id === nt.id);
@@ -1139,98 +1129,127 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
       )}
 
       {/* =====================================================================
-          DOCUMENTARY VOICEOVER NARRATION CAPTION + MINIMAL GLASSMORPHIC SCRUBBER
+          DOCUMENTARY VOICEOVER NARRATION CAPTION + UNIFIED BOTTOM CONTROL DOCK
           ===================================================================== */}
+      {!zenMode && dockCollapsed && (
+        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 z-20">
+          <button
+            type="button"
+            onClick={() => setDockCollapsed(false)}
+            data-testid="toggle-dock-btn"
+            className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-[#140E0C]/90 border border-amber-200/20 px-3.5 py-1.5 text-xs font-medium text-amber-100 hover:text-white shadow-xl cursor-pointer"
+            title="Show Controls (Shortcut: H)"
+          >
+            <ChevronUp className="w-3.5 h-3.5 text-amber-300" />
+            <span>Show Controls</span>
+          </button>
+        </div>
+      )}
+
       {!zenMode && !dockCollapsed && (
-        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-[min(860px,94vw)] flex flex-col items-center gap-2">
-          {/* Live Documentary Subtitle Caption */}
-          <div
-            className={`px-4 py-1.5 rounded-full text-center text-xs sm:text-[13px] font-medium max-w-[740px] truncate backdrop-blur-md ${
+        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-[min(920px,95vw)] flex flex-col items-center gap-2">
+          {/* Live Documentary Subtitle Caption (2-line readable wrap; click to expand full narration) */}
+          <button
+            type="button"
+            onClick={() => setCaptionExpanded((prev) => !prev)}
+            aria-expanded={captionExpanded}
+            title="Click to expand or collapse full stage narration"
+            className={`pointer-events-auto px-4 py-1.5 rounded-2xl text-center text-xs sm:text-[13px] font-medium max-w-[780px] leading-relaxed transition-colors cursor-pointer ${
               isLightPlate
-                ? 'bg-[#FAF6EE]/90 text-[#1C1917] border border-[#C8B9A6]'
-                : 'bg-black/45 text-white/95 border border-white/15 shadow-lg'
+                ? 'bg-[#FAF6EE]/95 text-[#1C1917] border border-[#C8B9A6] shadow-md'
+                : 'bg-[#140E0C]/90 text-stone-100 border border-amber-200/15 shadow-lg'
             }`}
           >
-            <span className="font-bold text-amber-300 mr-1.5">{currentStage.timeCourse}:</span>
-            <span>{currentStage.pathophysiologyNarrative}</span>
-          </div>
+            <span className={captionExpanded ? '' : 'line-clamp-2'}>
+              <span
+                className={`font-bold mr-1.5 ${
+                  isLightPlate ? 'text-[#8C2D19]' : 'text-amber-300'
+                }`}
+              >
+                {currentStage.timeCourse}:
+              </span>
+              <span>{currentStage.pathophysiologyNarrative}</span>
+            </span>
+          </button>
 
-          {/* Sleek Translucent Scrubber Bar */}
-          <div className="pointer-events-auto w-full rounded-2xl bg-black/55 backdrop-blur-xl border border-white/15 px-3.5 py-2 shadow-2xl">
-            <div className="flex flex-wrap items-center justify-between gap-2.5">
-              {/* Play/Pause + Continuous Stage Slider + S0..S3 */}
-              <div className="flex items-center gap-2.5 flex-1 min-w-[240px]">
-                <button
-                  type="button"
-                  onClick={() => setIsPlaying((p) => !p)}
-                  className="flex items-center justify-center gap-1 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 px-3 py-1 text-xs font-bold transition-colors shrink-0 cursor-pointer"
-                  aria-label={isPlaying ? 'Pause Progression' : 'Play Disease Progression'}
-                >
-                  {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                  <span>{isPlaying ? 'Pause' : 'Play Reel'}</span>
-                </button>
+          {/* Unified 2-Row Translucent Control Dock (Zero backdrop-blur over WebGL canvas) */}
+          <div className="pointer-events-auto w-full max-w-[780px] rounded-2xl bg-[#140E0C]/92 border border-amber-200/15 px-3.5 py-2 shadow-2xl space-y-2">
+            {/* Row 1: Play/Pause + Generous Continuous Stage Slider + S0..S3 */}
+            <div className="flex items-center gap-3 w-full">
+              <button
+                type="button"
+                onClick={() => setIsPlaying((p) => !p)}
+                className="flex items-center justify-center gap-1 rounded-full bg-amber-400 hover:bg-amber-300 text-[#140E0C] px-3 py-1 text-xs font-bold transition-colors shrink-0 cursor-pointer"
+                aria-label={isPlaying ? 'Pause Progression' : 'Play Disease Progression'}
+              >
+                {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                <span>{isPlaying ? 'Pause' : 'Play Reel'}</span>
+              </button>
 
-                <div className="flex-1 flex flex-col gap-1 min-w-[120px]">
-                  <div className="flex items-center justify-between text-[11px] font-mono text-white/85">
-                    <label htmlFor="pathology-stage-slider" className="font-semibold">
-                      Stage {scrubberValue.toFixed(1)} / 3.0
-                    </label>
-                    <span className="text-amber-200/85 hidden sm:inline">
-                      Stenosis {Math.round(interpolatedParams.stenosisRatio * 100)}% · Fibrosis{' '}
-                      {Math.round(interpolatedParams.fibrosisIntensity * 100)}%
-                    </span>
-                  </div>
-                  <input
-                    id="pathology-stage-slider"
-                    type="range"
-                    min={0}
-                    max={3}
-                    step={0.05}
-                    value={scrubberValue}
-                    onChange={(e) => {
-                      setIsPlaying(false);
-                      onScrubberChange(parseFloat(e.target.value));
-                    }}
-                    aria-label="Disease Progression Stage Scrubber"
-                    className="stage-scrubber w-full bg-white/20 rounded-lg h-1.5"
-                  />
+              <div className="flex-1 flex flex-col gap-1 min-w-[160px]">
+                <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-stone-200 whitespace-nowrap">
+                  <label htmlFor="pathology-stage-slider" className="font-semibold">
+                    Stage {scrubberValue.toFixed(1)} / 3.0
+                  </label>
+                  <span className="text-amber-200/85 hidden sm:inline">
+                    Stenosis {Math.round(interpolatedParams.stenosisRatio * 100)}% · Fibrosis{' '}
+                    {Math.round(interpolatedParams.fibrosisIntensity * 100)}% · Perfusion{' '}
+                    {Math.round(interpolatedParams.perfusionSpeed * 100)}%
+                  </span>
                 </div>
-
-                <div className="hidden md:flex items-center gap-1">
-                  {stages.map((st) => {
-                    const isCurrent = activeStageIndex === st.stageIndex;
-                    return (
-                      <button
-                        key={st.stageIndex}
-                        type="button"
-                        onClick={() => {
-                          setIsPlaying(false);
-                          onScrubberChange(st.stageIndex);
-                        }}
-                        title={`Stage ${st.stageIndex}: ${st.stageName}`}
-                        className={`px-2 py-0.5 rounded-full text-xs font-mono font-semibold border transition-colors cursor-pointer ${
-                          isCurrent
-                            ? 'bg-amber-400 border-amber-300 text-slate-950'
-                            : 'bg-white/10 border-white/15 text-white/75 hover:text-white'
-                        }`}
-                      >
-                        S{st.stageIndex}
-                      </button>
-                    );
-                  })}
-                </div>
+                <input
+                  id="pathology-stage-slider"
+                  type="range"
+                  min={0}
+                  max={3}
+                  step={0.05}
+                  value={scrubberValue}
+                  onChange={(e) => {
+                    setIsPlaying(false);
+                    onScrubberChange(parseFloat(e.target.value));
+                  }}
+                  aria-label="Disease Progression Stage Scrubber"
+                  className="stage-scrubber w-full bg-amber-100/20 rounded-lg h-1.5"
+                />
               </div>
 
-              {/* Scale Mode (Macro / Cellular) + Cutaway + Reset + Stages */}
+              <div className="hidden sm:flex items-center gap-1 shrink-0">
+                {stages.map((st) => {
+                  const isCurrent = activeStageIndex === st.stageIndex;
+                  return (
+                    <button
+                      key={st.stageIndex}
+                      type="button"
+                      onClick={() => {
+                        setIsPlaying(false);
+                        onScrubberChange(st.stageIndex);
+                      }}
+                      data-testid={`stage-btn-${st.stageIndex}`}
+                      title={`Stage ${st.stageIndex}: ${st.stageName}`}
+                      className={`px-2 py-0.5 rounded-full text-xs font-mono font-semibold border transition-colors cursor-pointer ${
+                        isCurrent
+                          ? 'bg-amber-400 border-amber-300 text-[#140E0C]'
+                          : 'bg-white/5 border-amber-200/15 text-stone-300 hover:text-white'
+                      }`}
+                    >
+                      S{st.stageIndex}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Row 2: Compact View, Slicing, Layer, Label & Studio Style Controls */}
+            <div className="flex items-center justify-between gap-2 flex-wrap pt-1.5 border-t border-amber-200/10">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <div className="flex items-center gap-0.5 p-0.5 bg-white/10 rounded-full border border-white/15">
+                <div className="flex items-center gap-0.5 p-0.5 bg-white/5 rounded-full border border-amber-200/15">
                   <button
                     type="button"
                     onClick={() => onToggleScaleMode('macro')}
                     className={`flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap cursor-pointer ${
                       scaleMode === 'macro'
-                        ? 'bg-amber-400 text-slate-950 font-semibold'
-                        : 'text-white/75 hover:text-white'
+                        ? 'bg-amber-400 text-[#140E0C] font-semibold'
+                        : 'text-stone-300 hover:text-white'
                     }`}
                   >
                     <Layers className="w-3 h-3" />
@@ -1241,8 +1260,8 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                     onClick={() => onToggleScaleMode('micro')}
                     className={`flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap cursor-pointer ${
                       scaleMode === 'micro'
-                        ? 'bg-amber-400 text-slate-950 font-semibold'
-                        : 'text-white/75 hover:text-white'
+                        ? 'bg-amber-400 text-[#140E0C] font-semibold'
+                        : 'text-stone-300 hover:text-white'
                     }`}
                   >
                     <Microscope className="w-3 h-3" />
@@ -1250,24 +1269,91 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                   </button>
                 </div>
 
+                {scaleMode === 'macro' && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSliceState((prev) => ({
+                        ...prev,
+                        axis: prev.axis === 'off' ? 'coronal' : 'off',
+                      }))
+                    }
+                    data-testid="toggle-slice-btn"
+                    aria-pressed={sliceState.axis !== 'off'}
+                    title="Toggle Interactive 3D Anatomical Cross-Section Slicing (Shortcut: X)"
+                    className={`flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium rounded-full border transition-colors whitespace-nowrap cursor-pointer ${
+                      sliceState.axis !== 'off'
+                        ? 'bg-amber-400 text-[#140E0C] border-amber-300 font-semibold'
+                        : 'bg-white/5 border-amber-200/15 text-stone-200 hover:text-white'
+                    }`}
+                  >
+                    <Slice className="w-3 h-3" />
+                    <span>
+                      {sliceState.axis === 'off'
+                        ? '3D Slice'
+                        : `Slice: ${sliceState.axis.charAt(0).toUpperCase() + sliceState.axis.slice(1)}`}
+                    </span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={onToggleCutaway}
                   aria-pressed={cutawayEnabled}
-                  className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full border transition-colors whitespace-nowrap cursor-pointer ${
+                  className={`flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium rounded-full border transition-colors whitespace-nowrap cursor-pointer ${
                     cutawayEnabled
                       ? 'bg-amber-400/25 border-amber-300 text-amber-200'
-                      : 'bg-white/10 border-white/15 text-white/80 hover:text-white'
+                      : 'bg-white/5 border-amber-200/15 text-stone-200 hover:text-white'
                   }`}
                 >
                   <Scissors className="w-3 h-3" />
                   <span>Peel Shell</span>
                 </button>
 
+                {scaleMode === 'macro' && (
+                  <button
+                    type="button"
+                    onClick={cyclePinMode}
+                    data-testid="toggle-pins-btn"
+                    className="flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-amber-200/15 text-stone-200 hover:text-amber-200 transition-colors whitespace-nowrap cursor-pointer"
+                    title="Cycle Label Style: Documentary Floating Text, Margin Plate Cards, Numbers, or Hidden (Shortcut: P)"
+                  >
+                    <MapPin className="w-3 h-3 text-amber-300" />
+                    <span>
+                      {pinDisplayMode === 'documentary'
+                        ? 'Labels'
+                        : pinDisplayMode === 'leader'
+                        ? 'Plate'
+                        : pinDisplayMode === 'compact'
+                        ? 'Pins'
+                        : 'Labels Off'}
+                    </span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={cycleBackdropMode}
+                  data-testid="toggle-plate-btn"
+                  className="flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-amber-200/15 text-amber-200 hover:text-white transition-colors whitespace-nowrap cursor-pointer"
+                  title="Cycle Studio Backdrop: Subsurface Glow, Dark Studio, or Netter Ivory Plate"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-300" />
+                  <span>
+                    {backdropMode === 'subsurface'
+                      ? 'Subsurface'
+                      : backdropMode === 'dark_studio'
+                      ? 'Dark'
+                      : 'Ivory'}
+                  </span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => resetCameraTriggerRef.current?.()}
-                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-white/10 border border-white/15 text-white/80 hover:text-white transition-colors cursor-pointer"
+                  className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-amber-200/15 text-stone-200 hover:text-white transition-colors cursor-pointer"
                   aria-label="Reset 3D Camera View"
                   title="Reset 3D Camera View"
                 >
@@ -1277,7 +1363,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                 <button
                   type="button"
                   onClick={() => setStagesExpanded((prev) => !prev)}
-                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-white/10 border border-white/15 text-white/80 hover:text-white transition-colors cursor-pointer"
+                  className="flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-amber-200/15 text-stone-200 hover:text-white transition-colors cursor-pointer"
                 >
                   <span>Stages</span>
                   {stagesExpanded ? (
@@ -1286,11 +1372,99 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                     <ChevronUp className="w-3 h-3" />
                   )}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDockCollapsed(true)}
+                  data-testid="toggle-dock-btn"
+                  className="flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full bg-white/5 border border-amber-200/15 text-stone-300 hover:text-white transition-colors cursor-pointer"
+                  aria-label="Hide Controls Dock"
+                  title="Hide Controls Dock (Shortcut: H)"
+                >
+                  <ChevronDown className="w-3 h-3" />
+                </button>
               </div>
             </div>
 
+            {/* Interactive Cross-Section Slicing Tray (Visible when 3D Slice is active in Macro Mode) */}
+            {scaleMode === 'macro' && sliceState.axis !== 'off' && (
+              <div
+                data-testid="slice-control-tray"
+                className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-amber-200/15"
+              >
+                <div className="flex items-center gap-1">
+                  {(['coronal', 'sagittal', 'axial'] as SliceAxis[]).map((axis) => {
+                    const active = sliceState.axis === axis;
+                    return (
+                      <button
+                        key={axis}
+                        type="button"
+                        onClick={() => setSliceState((prev) => ({ ...prev, axis }))}
+                        data-testid={`slice-axis-${axis}`}
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider border transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-amber-400 border-amber-300 text-[#140E0C]'
+                            : 'bg-white/5 border-amber-200/15 text-stone-300 hover:text-white'
+                        }`}
+                      >
+                        {axis}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center gap-2.5 flex-1 min-w-[180px]">
+                  <label
+                    htmlFor="slice-depth-slider"
+                    className="text-[11px] font-mono text-amber-200 whitespace-nowrap"
+                  >
+                    Cut Depth {Math.round(((sliceState.depth + 1) / 2) * 100)}%
+                  </label>
+                  <input
+                    id="slice-depth-slider"
+                    data-testid="slice-depth-slider"
+                    type="range"
+                    min={-0.85}
+                    max={0.85}
+                    step={0.01}
+                    value={sliceState.depth}
+                    onChange={(e) =>
+                      setSliceState((prev) => ({ ...prev, depth: parseFloat(e.target.value) }))
+                    }
+                    aria-label="Anatomical Cross-Section Cut Depth"
+                    className="stage-scrubber flex-1 bg-amber-100/20 rounded-lg h-1.5"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSliceState((prev) => ({ ...prev, flip: !prev.flip }))}
+                    data-testid="slice-flip-btn"
+                    className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-colors cursor-pointer ${
+                      sliceState.flip
+                        ? 'bg-amber-400/25 border-amber-300 text-amber-200'
+                        : 'bg-white/5 border-amber-200/15 text-stone-200 hover:text-white'
+                    }`}
+                    title="Invert which half of the organ is sliced away"
+                  >
+                    <FlipHorizontal2 className="w-3 h-3" />
+                    <span>Flip</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSliceState((prev) => ({ ...prev, axis: 'off' }))}
+                    data-testid="slice-off-btn"
+                    className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/5 border border-amber-200/15 text-stone-300 hover:text-white cursor-pointer"
+                  >
+                    Reset Cut
+                  </button>
+                </div>
+              </div>
+            )}
+
             {stagesExpanded && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2.5 pt-2.5 border-t border-white/15">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2.5 pt-2.5 border-t border-amber-200/15">
                 {stages.map((st) => {
                   const isCurrent = activeStageIndex === st.stageIndex;
                   return (
@@ -1304,7 +1478,7 @@ export const SurgicalViewport3D: React.FC<SurgicalViewport3DProps> = ({
                       className={`text-left rounded-xl px-2.5 py-1.5 border transition-colors cursor-pointer ${
                         isCurrent
                           ? 'bg-amber-400/20 border-amber-300 text-white'
-                          : 'bg-white/5 border-white/10 text-white/70 hover:text-white'
+                          : 'bg-white/5 border-amber-200/10 text-stone-300 hover:text-white'
                       }`}
                     >
                       <div className="text-[11px] font-mono font-semibold text-amber-300">

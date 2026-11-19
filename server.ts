@@ -117,7 +117,7 @@ async function startServer() {
   ensurePwaIconsExist();
 
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '2mb' }));
@@ -150,7 +150,7 @@ async function startServer() {
       'https://cdn.humanatlas.io/digital-objects/ref-organ/spleen-male/v1.3/assets/3d-vh-m-spleen.glb',
   };
 
-  const glbCacheDir = path.join('/tmp', 'patho3d-glb-cache');
+  const glbCacheDir = process.env.GLB_CACHE_DIR || path.join('/tmp', 'patho3d-glb-cache');
   if (!fs.existsSync(glbCacheDir)) {
     fs.mkdirSync(glbCacheDir, { recursive: true });
   }
